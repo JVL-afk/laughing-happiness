@@ -27,7 +27,7 @@ export default function LoginPage() {
 
       const data = await response.json();
 
-      if (data.success) {
+      if (data.message === "Login successful") {
         localStorage.setItem('userEmail', email);
         window.location.replace("/dashboard"); // Redirect to the dashboard page
       } else {
