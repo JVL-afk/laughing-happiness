@@ -29,7 +29,7 @@ export default function LoginPage() {
 
       if (data.success) {
         localStorage.setItem('userEmail', email);
-        router.push('/dashboard'); // Redirect to the dashboard page
+        window.location.href = "/dashboard"; // Redirect to the dashboard page
       } else {
         // Handle both string errors and error objects
         const errorMessage = typeof data.error === 'string' 
