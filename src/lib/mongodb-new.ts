@@ -25,7 +25,6 @@ const connectionOptions = {
   connectTimeoutMS: 10000,
   maxIdleTimeMS: 30000,
   retryWrites: true,
-  w: 'majority',
   // Add authentication source
   authSource: 'admin',
 };
@@ -58,15 +57,15 @@ export async function connectToDatabase(): Promise<{ client: MongoClient; db: Db
     console.log('🔄 Attempting to connect to MongoDB...');
     const client = await clientPromise;
     const db = client.db('affilify');
-    
+
     // Test the connection
     await db.admin().ping();
     console.log('✅ Successfully connected to MongoDB Atlas');
-    
+
     return { client, db };
   } catch (error) {
     console.error('❌ MongoDB connection error:', error);
-    
+
     // Provide specific error messages
     if (error instanceof Error) {
       if (error.message.includes('authentication failed')) {
@@ -77,7 +76,7 @@ export async function connectToDatabase(): Promise<{ client: MongoClient; db: Db
         console.error('🔍 DNS resolution failed - check cluster hostname');
       }
     }
-    
+
     throw error;
   }
 }
@@ -87,7 +86,7 @@ export async function getDatabase(): Promise<Db> {
   if (isBuildTime || process.env.SKIP_DB_CONNECTION === 'true') {
     throw new Error('Database connection skipped during build time');
   }
-  
+
   const client = await clientPromise;
   return client.db('affilify');
 }
@@ -112,23 +111,23 @@ export async function getAnalyticsCollection() {
 export async function initializeDatabase() {
   try {
     const db = await getDatabase();
-    
+
     // Create indexes for better performance
     const users = db.collection('users');
     await users.createIndex({ email: 1 }, { unique: true });
     await users.createIndex({ createdAt: 1 });
-    
+
     const websites = db.collection('websites');
     await websites.createIndex({ userId: 1 });
     await websites.createIndex({ createdAt: 1 });
-    
+
     const analytics = db.collection('analytics');
     await analytics.createIndex({ websiteId: 1 });
     await analytics.createIndex({ userId: 1 });
     await analytics.createIndex({ date: 1 });
-    
+
     console.log('✅ Database indexes created successfully');
-    
+
   } catch (error) {
     console.error('❌ Database initialization error:', error);
     throw error;
@@ -152,7 +151,7 @@ export async function getDatabaseStatus() {
   try {
     const { client, db } = await connectToDatabase();
     const stats = await db.stats();
-    
+
     return {
       connected: true,
       database: db.databaseName,

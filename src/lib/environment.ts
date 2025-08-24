@@ -4,51 +4,51 @@ import { z } from 'zod';
 const envSchema = z.object({
   // Node environment
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  
+
   // Database
   MONGODB_URI: z.string().min(1, 'MongoDB URI is required'),
   MONGODB_DB: z.string().default('affilify'),
-  
+
   // Authentication
   JWT_SECRET: z.string().min(32, 'JWT secret must be at least 32 characters'),
   JWT_REFRESH_SECRET: z.string().optional(),
-  
+
   // Stripe
   STRIPE_SECRET_KEY: z.string().min(1, 'Stripe secret key is required'),
   STRIPE_WEBHOOK_SECRET: z.string().min(1, 'Stripe webhook secret is required'),
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().min(1, 'Stripe publishable key is required'),
-  
+
   // Stripe Price IDs
   STRIPE_PRO_PRICE_ID: z.string().min(1, 'Stripe Pro price ID is required'),
   STRIPE_ENTERPRISE_PRICE_ID: z.string().min(1, 'Stripe Enterprise price ID is required'),
-  
+
   // Google AI
   GOOGLE_AI_API_KEY: z.string().min(1, 'Google AI API key is required'),
-  
+
   // Redis (optional)
   REDIS_URL: z.string().optional(),
   UPSTASH_REDIS_REST_URL: z.string().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
-  
+
   // Application URLs
   NEXT_PUBLIC_APP_URL: z.string().url('Invalid app URL').default('http://localhost:3000'),
-  
+
   // Email (optional)
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.string().optional(),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
-  
+
   // Monitoring (optional)
   SENTRY_DSN: z.string().optional(),
   VERCEL_URL: z.string().optional(),
-  
+
   // Security
   ENCRYPTION_KEY: z.string().min(32, 'Encryption key must be at least 32 characters').optional(),
-  
+
   // Rate limiting
   RATE_LIMIT_REDIS_URL: z.string().optional(),
-  
+
   // File uploads (optional)
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
@@ -86,7 +86,7 @@ export function getEnvironment(): Environment {
 // Environment-specific configurations
 export class EnvironmentConfig {
   private static env = getEnvironment();
-  
+
   // Database configuration
   static get database() {
     return {
@@ -108,7 +108,7 @@ export class EnvironmentConfig {
       }
     };
   }
-  
+
   // Authentication configuration
   static get auth() {
     return {
@@ -122,7 +122,7 @@ export class EnvironmentConfig {
       sessionDuration: 7 * 24 * 60 * 60 * 1000 // 7 days
     };
   }
-  
+
   // Stripe configuration
   static get stripe() {
     return {
@@ -134,7 +134,7 @@ export class EnvironmentConfig {
       apiVersion: '2024-06-20' as const
     };
   }
-  
+
   // Google AI configuration
   static get googleAI() {
     return {
@@ -149,7 +149,7 @@ export class EnvironmentConfig {
       }
     };
   }
-  
+
   // Redis configuration
   static get redis() {
     return {
@@ -160,7 +160,7 @@ export class EnvironmentConfig {
       keyPrefix: 'affilify:'
     };
   }
-  
+
   // Application configuration
   static get app() {
     return {
@@ -172,7 +172,7 @@ export class EnvironmentConfig {
       vercelUrl: this.env.VERCEL_URL
     };
   }
-  
+
   // Email configuration
   static get email() {
     return {
@@ -184,7 +184,7 @@ export class EnvironmentConfig {
       from: this.env.SMTP_USER || 'noreply@affilify.com'
     };
   }
-  
+
   // Monitoring configuration
   static get monitoring() {
     return {
@@ -194,12 +194,12 @@ export class EnvironmentConfig {
       tracesSampleRate: this.env.NODE_ENV === 'production' ? 0.1 : 1.0
     };
   }
-  
+
   // Security configuration
   static get security() {
     return {
       encryptionKey: this.env.ENCRYPTION_KEY || this.env.JWT_SECRET,
-      corsOrigins: this.env.NODE_ENV === 'production' 
+      corsOrigins: this.env.NODE_ENV === 'production'
         ? [this.env.NEXT_PUBLIC_APP_URL]
         : ['http://localhost:3000', 'http://localhost:3001'],
       rateLimiting: {
@@ -217,7 +217,7 @@ export class EnvironmentConfig {
       }
     };
   }
-  
+
   // File upload configuration
   static get uploads() {
     return {
@@ -232,7 +232,7 @@ export class EnvironmentConfig {
       allowedTypes: ['image/jpeg', 'image/png', 'image/webp']
     };
   }
-  
+
   // Rate limiting configuration by subscription
   static get subscriptionLimits() {
     return {
@@ -307,28 +307,35 @@ export function checkEnvironmentHealth(): {
 } {
   const issues: string[] = [];
   const config: Record<string, boolean> = {};
-  
+
   // Check required services
   config.database = !!EnvironmentConfig.database.uri;
   config.auth = !!EnvironmentConfig.auth.jwtSecret;
   config.stripe = !!(EnvironmentConfig.stripe.secretKey && EnvironmentConfig.stripe.webhookSecret);
   config.googleAI = !!EnvironmentConfig.googleAI.apiKey;
-  
+
   // Check optional services
   config.redis = EnvironmentConfig.redis.enabled;
   config.email = EnvironmentConfig.email.enabled;
   config.monitoring = EnvironmentConfig.monitoring.enabled;
   config.uploads = EnvironmentConfig.uploads.enabled;
-  
+
   // Identify issues
   if (!config.database) issues.push('Database configuration missing');
   if (!config.auth) issues.push('Authentication configuration incomplete');
   if (!config.stripe) issues.push('Stripe configuration incomplete');
   if (!config.googleAI) issues.push('Google AI configuration missing');
-  
+
   // Warnings for optional services
   if (!config.redis) issues.push('Redis not configured (rate limiting will use memory)');
   if (!config.email) issues.push('Email service not configured');
   if (!config.monitoring) issues.push('Monitoring not configured');
-  
-const status = issues.length === 0 ? 'healthy' : 'warning'}
+
+  const status = issues.length === 0 ? 'healthy' : 'warning';
+
+  return {
+    status,
+    issues,
+    config
+  };
+}

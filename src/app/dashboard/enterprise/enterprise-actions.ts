@@ -24,8 +24,7 @@ export async function addTeamMember(formData: FormData) {
     
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
     
-    const client = await connectToDatabase();
-    const db = client.db('affilify');
+    const { db } = await connectToDatabase();
     
     // Check if email already exists
     const existingMember = await db.collection('team_members').findOne({ email });
@@ -64,8 +63,7 @@ export async function removeTeamMember(formData: FormData) {
     
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
     
-    const client = await connectToDatabase();
-    const db = client.db('affilify');
+    const { db } = await connectToDatabase();
     
     // Remove team member
     await db.collection('team_members').deleteOne({
@@ -92,8 +90,7 @@ export async function generateApiKey(formData: FormData) {
     
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
     
-    const client = await connectToDatabase();
-    const db = client.db('affilify');
+    const { db } = await connectToDatabase();
     
     // Check API key limit
     const keyCount = await db.collection('api_keys').countDocuments({
@@ -135,8 +132,7 @@ export async function deleteApiKey(formData: FormData) {
     
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
     
-    const client = await connectToDatabase();
-    const db = client.db('affilify');
+    const { db } = await connectToDatabase();
     
     // Delete API key
     await db.collection('api_keys').deleteOne({
@@ -166,8 +162,7 @@ export async function updateWhiteLabel(formData: FormData) {
     
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
     
-    const client = await connectToDatabase();
-    const db = client.db('affilify');
+    const { db } = await connectToDatabase();
     
     // Update or create white-label settings
     await db.collection('white_label_settings').updateOne(
@@ -191,3 +186,4 @@ export async function updateWhiteLabel(formData: FormData) {
     return { success: false, error: 'Failed to update white-label settings. Please try again.' };
   }
 }
+

@@ -1,4 +1,5 @@
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import jwt from 'jsonwebtoken';
 import { connectToDatabase } from '../../../lib/mongodb';
 import { ObjectId } from 'mongodb';
@@ -22,8 +23,7 @@ export default async function EnterprisePage({ searchParams }: { searchParams: {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
       
-      const client = await connectToDatabase();
-      const db = client.db('affilify');
+      const { db } = await connectToDatabase();
       
       const user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
       if (user) {
@@ -44,8 +44,7 @@ export default async function EnterprisePage({ searchParams }: { searchParams: {
   const successMessage = searchParams?.success;
   
   // Get team members, API keys, and white-label settings
-  const client = await connectToDatabase();
-  const db = client.db('affilify');
+  const { db } = await connectToDatabase();
   
   const teamMembers = await db.collection('team_members')
     .find({ organizationId: userInfo.user._id })
@@ -82,13 +81,4 @@ export default async function EnterprisePage({ searchParams }: { searchParams: {
       whiteLabelSettings={whiteLabelSettings}
     />
   );
-}
-
-function redirect(path: string) {
-  return {
-    redirect: {
-      destination: path,
-      permanent: false,
-    },
-  };
 }

@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
 
     // Check if account is locked
     if (user.security?.lockedUntil && user.security.lockedUntil > new Date()) {
-      const lockTimeRemaining = Math.ceil((user.security.lockedUntil - new Date()) / 1000 / 60);
+      const lockTimeRemaining = Math.ceil((user.security.lockedUntil.getTime() - new Date().getTime()) / 1000 / 60);
       console.log('🔒 Account locked for user:', email, 'Time remaining:', lockTimeRemaining, 'minutes');
       return NextResponse.json(
         { 

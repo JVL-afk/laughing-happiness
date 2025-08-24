@@ -18,8 +18,7 @@ async function getWebsitesData(): Promise<{ websites: Website[] } | null> {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
-    const client = await connectToDatabase();
-    const db = client.db('affilify');
+    const { db } = await connectToDatabase();
 
     const websites = await db.collection('generated_websites')
       .find({ userId: new ObjectId(decoded.userId) })

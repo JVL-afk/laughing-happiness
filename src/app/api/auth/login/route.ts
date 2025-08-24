@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { MongoClient } from 'mongodb';
+import { connectToDatabase } from '@/lib/mongodb';
 
 // MongoDB connection with CORRECTED password case
 const MONGODB_URI = process.env.MONGODB_URI!;
@@ -37,8 +38,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Connect to database
-    const client = await clientPromise;
+    const { db } = await connectToDatabase();
     const users = db.collection('users');
+
 
     // Find user
     const user = await users.findOne({ email });

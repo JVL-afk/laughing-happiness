@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import { MongoClient, ObjectId } from 'mongodb';
+import { connectToDatabase } from '@/lib/mongodb';
 
 function verifyAuth(request: NextRequest) {
   try {
@@ -24,16 +25,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Direct MongoDB connection
-    const client = new MongoClient(process.env.MONGODB_URI!);
-    await client.connect();
+    // Use connectToDatabase helper
+    const { db } = await connectToDatabase();
 
-    // Get user
+    // Get user - fix the user object property
     const dbUser = await db.collection('users').findOne({ 
-      _id: new ObjectId(user.userId) 
+      _id: new ObjectId((user as any).userId || (user as any).id) 
     });
-
-    await client.close();
 
     if (!dbUser) {
       return NextResponse.json(
@@ -91,7 +89,7 @@ export async function GET(request: NextRequest) {
         email: dbUser.email,
         plan: currentPlan
       },
-      features: planFeatures[currentPlan] || planFeatures.basic,
+      features: planFeatures[currentPlan as keyof typeof planFeatures] || planFeatures.basic,
       hasAccess: {
         aiAnalysis: true,
         websiteGeneration: true,

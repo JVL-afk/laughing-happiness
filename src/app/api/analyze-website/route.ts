@@ -158,7 +158,7 @@ async function handleAnalyzeWebsite(request: NextRequest): Promise<NextResponse>
   
   if (!userLimitResult.allowed) {
     throw ErrorFactory.rateLimit(
-      `Daily AI analysis limit reached for ${user.subscription.plan} plan. Upgrade for more analyses.`
+      `Daily AI analysis limit reached for ${user.plan} plan. Upgrade for more analyses.`
     );
   }
   
@@ -182,14 +182,14 @@ async function handleAnalyzeWebsite(request: NextRequest): Promise<NextResponse>
     }
     
     // Perform AI analysis
-    const analysisResult = await analyzeWebsiteWithAI(url, user.id);
+    const analysisResult = await analyzeWebsiteWithAI(url, user.userId.toString());
     
     // Save analysis to database
     const analysisRecord = {
-      userId: user.id,
+      userId: user.userId.toString(),
       url: url,
       analysis: analysisResult,
-      userPlan: user.subscription.plan,
+      userPlan: user.plan,
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -198,7 +198,7 @@ async function handleAnalyzeWebsite(request: NextRequest): Promise<NextResponse>
     
     // Update user usage statistics
     await db.collection('users').updateOne(
-      { _id: user.id },
+      { _id: user.userId },
       { 
         $inc: { 'usage.aiRequestsThisMonth': 1 },
         $set: { 
@@ -210,10 +210,10 @@ async function handleAnalyzeWebsite(request: NextRequest): Promise<NextResponse>
     
     // Log API usage for analytics
     await db.collection('api_usage').insertOne({
-      userId: user.id,
+      userId: user.userId.toString(),
       endpoint: '/api/analyze-website',
       method: 'POST',
-      userPlan: user.subscription.plan,
+      userPlan: user.plan,
       success: true,
       responseTime: Date.now() - Date.now(), // This would be calculated properly
       createdAt: new Date()
@@ -231,10 +231,10 @@ async function handleAnalyzeWebsite(request: NextRequest): Promise<NextResponse>
     try {
       const { db } = await connectToDatabase();
       await db.collection('api_usage').insertOne({
-        userId: user.id,
+        userId: user.userId.toString(),
         endpoint: '/api/analyze-website',
         method: 'POST',
-        userPlan: user.subscription.plan,
+        userPlan: user.plan,
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
         createdAt: new Date()

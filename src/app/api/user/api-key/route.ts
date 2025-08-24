@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '../../../../lib/mongodb';
 import { requireEnterprise } from '../../../../lib/auth-middleware';
 import crypto from 'crypto';
+import { ObjectId } from 'mongodb';
 
 export async function GET(request: NextRequest) {
   try {
@@ -198,7 +199,7 @@ export async function DELETE(request: NextRequest) {
     // Deactivate the API key (soft delete)
     const result = await db.collection('api_keys').updateOne(
       { 
-        _id: keyId,
+        _id: new ObjectId(keyId),
         userId: user.userId 
       },
       {

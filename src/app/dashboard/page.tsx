@@ -4,7 +4,7 @@ import Link from 'next/link';
 import jwt from 'jsonwebtoken';
 import { connectToDatabase } from '../../lib/mongodb';
 import { ObjectId } from 'mongodb';
-import { LogoutButton } from './LogoutButton';
+//import { LogoutButton } from "./LogoutButton";
 
 // --- 1. Secure Server-Side Data Fetching ---
 async function getDashboardData() {
@@ -83,7 +83,6 @@ export default async function DashboardPage() {
           <h1 className="text-2xl font-bold">AFFILIFY</h1>
           <div className="flex items-center space-x-4">
             <span className="text-orange-200">Welcome, {userFirstName}!</span>
-            <LogoutButton />
           </div>
         </div>
       </header>

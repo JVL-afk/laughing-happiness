@@ -16,8 +16,7 @@ export default async function CustomDomainPage({ searchParams }: { searchParams?
   if (token) {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
-      const client = await connectToDatabase();
-      const db = client.db('affilify');
+      const { db } = await connectToDatabase();
       
       const user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
       if (user) {
@@ -34,8 +33,7 @@ export default async function CustomDomainPage({ searchParams }: { searchParams?
   }
 
   // Get user's websites and domains
-  const client = await connectToDatabase();
-  const db = client.db('affilify');
+  const { db } = await connectToDatabase();
   
   const websites = await db.collection('generated_websites')
     .find({ userId: userInfo.user._id })
@@ -301,8 +299,7 @@ async function addCustomDomain(formData: FormData) {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
-    const client = await connectToDatabase();
-    const db = client.db('affilify');
+    const { db } = await connectToDatabase();
 
     const user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
     if (!user || user.plan === 'basic') {
@@ -391,8 +388,7 @@ async function verifyDomain(formData: FormData) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
     const domainId = formData.get('domainId') as string;
 
-    const client = await connectToDatabase();
-    const db = client.db('affilify');
+    const { db } = await connectToDatabase();
 
     const domain = await db.collection('custom_domains').findOne({
       _id: new ObjectId(domainId),
@@ -404,40 +400,42 @@ async function verifyDomain(formData: FormData) {
     }
 
     // Check domain status with Vercel
-    const vercelResponse = await fetch(`https://api.vercel.com/v9/projects/${process.env.VERCEL_PROJECT_ID}/domains/${domain.domain}`, {
-      headers: {
-        'Authorization': `Bearer ${process.env.VERCEL_API_TOKEN}`,
-      },
-    });
+    try {
+      const vercelResponse = await fetch(`https://api.vercel.com/v9/projects/${process.env.VERCEL_PROJECT_ID}/domains/${domain.domain}`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.VERCEL_API_TOKEN}`,
+        },
+      });
 
-    if (vercelResponse.ok) {
-      const domainData = await vercelResponse.json();
-      
-      // Update domain status based on Vercel response
-      const newStatus = domainData.verified ? 'active' : 'pending';
-      
-      await db.collection('custom_domains').updateOne(
-        { _id: new ObjectId(domainId) },
-        { 
-          $set: { 
-            status: newStatus,
-            lastVerified: new Date()
-          } 
+      if (vercelResponse.ok) {
+        const domainData = await vercelResponse.json();
+        
+        if (domainData.verified) {
+          // Update domain status to active
+          await db.collection('custom_domains').updateOne(
+            { _id: new ObjectId(domainId) },
+            { 
+              $set: { 
+                status: 'active',
+                verifiedAt: new Date()
+              }
+            }
+          );
+          redirect('/dashboard/custom-domains?success=domain_verified');
+        } else {
+          redirect('/dashboard/custom-domains?error=domain_not_verified');
         }
-      );
-
-      if (newStatus === 'active') {
-        redirect('/dashboard/custom-domains?success=domain_verified');
       } else {
-        redirect('/dashboard/custom-domains?error=domain_not_ready');
+        redirect('/dashboard/custom-domains?error=vercel_error');
       }
-    } else {
-      redirect('/dashboard/custom-domains?error=verification_failed');
+    } catch (vercelError) {
+      console.error('Failed to verify domain with Vercel:', vercelError);
+      redirect('/dashboard/custom-domains?error=vercel_error');
     }
 
   } catch (error) {
     console.error("Failed to verify domain:", error);
-    redirect('/dashboard/custom-domains?error=verification_failed');
+    redirect('/dashboard/custom-domains?error=vercel_error');
   }
 }
 
@@ -454,8 +452,7 @@ async function removeDomain(formData: FormData) {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
     const domainId = formData.get('domainId') as string;
 
-    const client = await connectToDatabase();
-    const db = client.db('affilify');
+    const { db } = await connectToDatabase();
 
     const domain = await db.collection('custom_domains').findOne({
       _id: new ObjectId(domainId),
@@ -468,24 +465,26 @@ async function removeDomain(formData: FormData) {
 
     // Remove domain from Vercel
     try {
-      await fetch(`https://api.vercel.com/v9/projects/${process.env.VERCEL_PROJECT_ID}/domains/${domain.domain}`, {
+      const vercelResponse = await fetch(`https://api.vercel.com/v9/projects/${process.env.VERCEL_PROJECT_ID}/domains/${domain.domain}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${process.env.VERCEL_API_TOKEN}`,
         },
       });
+
+      // Remove from database regardless of Vercel response
+      await db.collection('custom_domains').deleteOne({ _id: new ObjectId(domainId) });
+
+      redirect('/dashboard/custom-domains?success=domain_removed');
     } catch (vercelError) {
       console.error('Failed to remove domain from Vercel:', vercelError);
-      // Continue with database removal even if Vercel fails
+      // Still remove from database
+      await db.collection('custom_domains').deleteOne({ _id: new ObjectId(domainId) });
+      redirect('/dashboard/custom-domains?success=domain_removed');
     }
-
-    // Remove domain from database
-    await db.collection('custom_domains').deleteOne({ _id: new ObjectId(domainId) });
-
-    redirect('/dashboard/custom-domains?success=domain_removed');
 
   } catch (error) {
     console.error("Failed to remove domain:", error);
-    redirect('/dashboard/custom-domains?error=removal_failed');
+    redirect('/dashboard/custom-domains?error=vercel_error');
   }
 }

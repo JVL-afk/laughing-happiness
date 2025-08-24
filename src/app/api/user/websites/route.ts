@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import jwt from 'jsonwebtoken';
 import { MongoClient, ObjectId } from 'mongodb';
+import { connectToDatabase } from '@/lib/mongodb';
 
 function verifyAuth(request: NextRequest) {
   try {
@@ -25,17 +26,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Connect to database
-    const client = new MongoClient(process.env.MONGODB_URI!);
-    await client.connect();
+    // Connect to database using helper
+    const { db } = await connectToDatabase();
 
-    // Get user's websites
+    // Get user's websites - fix user property with fallback
     const websites = await db.collection('generated_websites')
-      .find({ userId: new ObjectId(user.userId) })
+      .find({ userId: new ObjectId((user as any).userId || (user as any).id) })
       .sort({ createdAt: -1 })
       .toArray();
-
-    await client.close();
 
     // Format websites for response
     const formattedWebsites = websites.map(website => ({
@@ -90,17 +88,14 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Connect to database
-    const client = new MongoClient(process.env.MONGODB_URI!);
-    await client.connect();
+    // Connect to database using helper
+    const { db } = await connectToDatabase();
 
-    // Delete website (only if it belongs to the user)
+    // Delete website (only if it belongs to the user) - fix user property
     const result = await db.collection('generated_websites').deleteOne({
       _id: new ObjectId(websiteId),
-      userId: new ObjectId(user.userId)
+      userId: new ObjectId((user as any).userId || (user as any).id)
     });
-
-    await client.close();
 
     if (result.deletedCount === 0) {
       return NextResponse.json(

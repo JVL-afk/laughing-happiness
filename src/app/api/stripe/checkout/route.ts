@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { connectToDatabase } from '../../../../lib/mongodb';
 import jwt from 'jsonwebtoken';
+import { ObjectId } from 'mongodb';
 
 // Initialize Stripe with proper error handling
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
     const { db } = await connectToDatabase();
 
     // 4. GET USER DETAILS
-    const user = await db.collection('users').findOne({ _id: userId });
+    const user = await db.collection('users').findOne({ _id: new ObjectId(userId) });
     if (!user) {
       return NextResponse.json({ 
         error: 'User not found',
@@ -103,7 +104,7 @@ export async function POST(request: NextRequest) {
 
       // Update user with Stripe customer ID
       await db.collection('users').updateOne(
-        { _id: userId },
+      { _id: new ObjectId(userId) },
         { $set: { stripeCustomerId: customerId } }
       );
     }

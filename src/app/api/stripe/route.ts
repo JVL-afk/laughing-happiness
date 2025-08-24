@@ -5,12 +5,13 @@ import { withErrorHandler, ErrorFactory, ValidationHelper } from '../../../lib/e
 import { rateLimit } from '../../../lib/rate-limit';
 import { EnvironmentConfig } from '../../../lib/environment';
 import { authenticateRequest } from '../../../lib/auth-middleware';
+import { ObjectId } from 'mongodb';
 
 // Initialize Stripe with production configuration
 const stripe = new Stripe(EnvironmentConfig.stripe.secretKey, {
-  apiVersion: '2024-06-20',
+  apiVersion: '2023-10-16',
   typescript: true,
-  telemetry: false, // Disable telemetry for privacy
+  telemetry: false,
   maxNetworkRetries: 3,
 });
 
@@ -66,7 +67,7 @@ async function createCheckoutSession(request: NextRequest): Promise<NextResponse
     
     // Check if user already has an active subscription
     const existingSubscription = await db.collection('subscriptions').findOne({
-      userId: user.id,
+      userId: user.userId,
       status: { $in: ['active', 'trialing'] }
     });
     
@@ -76,23 +77,23 @@ async function createCheckoutSession(request: NextRequest): Promise<NextResponse
     
     // Create or retrieve Stripe customer
     let stripeCustomer;
-    const existingCustomer = await db.collection('users').findOne({ _id: user.id });
+    const existingCustomer = await db.collection('users').findOne({ _id: user.userId });
     
     if (existingCustomer?.stripeCustomerId) {
-      stripeCustomer = await stripe.customers.retrieve(existingCustomer.stripeCustomerId);
+      stripeCustomer = await stripe.customers.retrieve(existingCustomer.stripeCustomerId.toString());
     } else {
       stripeCustomer = await stripe.customers.create({
         email: user.email,
-        name: user.name,
+        name: user.fullName,
         metadata: {
-          userId: user.id,
+          userId: user.userId.toString(),
           plan: plan
         }
       });
       
       // Update user with Stripe customer ID
       await db.collection('users').updateOne(
-        { _id: user.id },
+        { _id: user.userId },
         { 
           $set: { 
             stripeCustomerId: stripeCustomer.id,
@@ -102,7 +103,7 @@ async function createCheckoutSession(request: NextRequest): Promise<NextResponse
       );
     }
     
-    // Create checkout session
+    // Create simplified checkout session
     const session = await stripe.checkout.sessions.create({
       customer: stripeCustomer.id,
       payment_method_types: ['card'],
@@ -116,41 +117,21 @@ async function createCheckoutSession(request: NextRequest): Promise<NextResponse
       success_url: `${EnvironmentConfig.app.url}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${EnvironmentConfig.app.url}/pricing?cancelled=true`,
       metadata: {
-        userId: user.id,
+        userId: user.userId.toString(),
         plan: plan,
         userEmail: user.email
       },
       subscription_data: {
         metadata: {
-          userId: user.id,
+          userId: user.userId.toString(),
           plan: plan
-        }
-      },
-      customer_update: {
-        address: 'auto',
-        name: 'auto'
-      },
-      tax_id_collection: {
-        enabled: true
-      },
-      automatic_tax: {
-        enabled: true
-      },
-      billing_address_collection: 'required',
-      consent_collection: {
-        terms_of_service: 'required',
-        privacy_policy: 'required'
-      },
-      custom_text: {
-        submit: {
-          message: `You'll be charged for the ${planConfig.name} subscription.`
         }
       }
     });
     
     // Log checkout session creation
     await db.collection('payment_logs').insertOne({
-      userId: user.id,
+      userId: user.userId,
       action: 'checkout_session_created',
       sessionId: session.id,
       plan: plan,
@@ -183,13 +164,12 @@ async function getSubscriptionStatus(request: NextRequest): Promise<NextResponse
     throw ErrorFactory.authentication();
   }
   
-  
   try {
     const { db } = await connectToDatabase();
     
     // Get user's subscription from database
     const subscription = await db.collection('subscriptions').findOne({
-      userId: user.id
+      userId: user.userId
     });
     
     if (!subscription) {
@@ -265,7 +245,7 @@ async function cancelSubscription(request: NextRequest): Promise<NextResponse> {
     
     // Get user's subscription
     const subscription = await db.collection('subscriptions').findOne({
-      userId: user.id,
+      userId: user.userId,
       status: { $in: ['active', 'trialing'] }
     });
     
@@ -295,7 +275,7 @@ async function cancelSubscription(request: NextRequest): Promise<NextResponse> {
     
     // Log cancellation
     await db.collection('payment_logs').insertOne({
-      userId: user.id,
+      userId: user.userId,
       action: 'subscription_cancelled',
       subscriptionId: subscription.stripeSubscriptionId,
       immediate: cancelImmediately,

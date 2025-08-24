@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import jwt from 'jsonwebtoken';
 import { connectToDatabase } from '../../../lib/mongodb';
+import { ObjectId } from 'mongodb';
 
 // Initialize Gemini AI with proper error handling
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -95,7 +96,7 @@ async function extractProductInfo(url: string): Promise<{
 // AI-powered website generation with Gemini
 async function generateWebsiteWithAI(productInfo: any, affiliateUrl: string, template: string, niche?: string, targetAudience?: string): Promise<string> {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
     const prompt = `Create a high-converting affiliate marketing website for this product:
 
@@ -266,7 +267,11 @@ export async function POST(request: NextRequest) {
         plan: userPlan
       };
 
-      const insertResult = await db.collection('generated_websites').insertOne(websiteData);
+      const insertResult = await db.collection('generated_websites').insertOne({
+      ...websiteData,
+      _id: new ObjectId()
+      });
+
 
       // Update user's usage statistics
       await db.collection('users').updateOne(

@@ -3,6 +3,7 @@ import { connectToDatabase } from '../../../../lib/mongodb';
 import { withErrorHandler, ErrorFactory, ValidationHelper } from '../../../../lib/error-handler';
 import { authenticateRequest, requirePremium } from '../../../../lib/auth-middleware';
 import { rateLimit } from '../../../../lib/rate-limit';
+import { ObjectId } from 'mongodb';
 import crypto from 'crypto';
 
 // API Key utilities
@@ -42,7 +43,7 @@ async function getUserApiKeys(request: NextRequest): Promise<NextResponse> {
     
     // Get user's API keys
     const apiKeys = await db.collection('api_keys').find({
-      userId: user.id,
+      userId: user.userId.toString(),
       isDeleted: { $ne: true }
     }).sort({ createdAt: -1 }).toArray();
     
@@ -94,13 +95,13 @@ async function createApiKey(request: NextRequest): Promise<NextResponse> {
     
     // Check API key limit based on subscription
     const existingKeysCount = await db.collection('api_keys').countDocuments({
-      userId: user.id,
+      userId: user.userId.toString(),
       isDeleted: { $ne: true }
     });
     
-    const maxKeys = user.subscription.plan === 'pro' ? 5 : 10; // Pro: 5, Enterprise: 10
+    const maxKeys = user.plan === 'pro' ? 5 : 10; // Pro: 5, Enterprise: 10
     if (existingKeysCount >= maxKeys) {
-      throw ErrorFactory.validation(`Maximum ${maxKeys} API keys allowed for ${user.subscription.plan} plan`);
+      throw ErrorFactory.validation(`Maximum ${maxKeys} API keys allowed for ${user.plan} plan`);
     }
     
     // Generate API key
@@ -114,11 +115,11 @@ async function createApiKey(request: NextRequest): Promise<NextResponse> {
       enterprise: { requests: 10000, window: 3600000 } // 10000 per hour
     };
     
-    const rateLimitConfig = customRateLimit || defaultRateLimits[user.subscription.plan];
+    const rateLimitConfig = customRateLimit || defaultRateLimits[user.plan];
     
     // Create API key record
     const apiKeyRecord = {
-      userId: user.id,
+      userId: user.userId.toString(),
       name: name.trim(),
       hashedKey,
       keyPreview,
@@ -135,7 +136,7 @@ async function createApiKey(request: NextRequest): Promise<NextResponse> {
     
     // Log API key creation
     await db.collection('api_key_logs').insertOne({
-      userId: user.id,
+      userId: user.userId.toString(),
       apiKeyId: result.insertedId,
       action: 'created',
       metadata: { name, rateLimit: rateLimitConfig },
@@ -180,7 +181,7 @@ async function updateApiKey(request: NextRequest): Promise<NextResponse> {
     // Find API key
     const apiKey = await db.collection('api_keys').findOne({
       _id: id,
-      userId: user.id,
+      userId: user.userId.toString(),
       isDeleted: { $ne: true }
     });
     
@@ -216,7 +217,7 @@ async function updateApiKey(request: NextRequest): Promise<NextResponse> {
     
     // Log API key update
     await db.collection('api_key_logs').insertOne({
-      userId: user.id,
+      userId: user.userId.toString(),
       apiKeyId: id,
       action: 'updated',
       metadata: updateData,
@@ -253,10 +254,10 @@ async function deleteApiKey(request: NextRequest): Promise<NextResponse> {
     
     // Find API key
     const apiKey = await db.collection('api_keys').findOne({
-      _id: keyId,
-      userId: user.id,
-      isDeleted: { $ne: true }
-    });
+  _id: new ObjectId(keyId),
+  userId: user.userId.toString(),
+  isDeleted: { $ne: true }
+});
     
     if (!apiKey) {
       throw ErrorFactory.notFound('API key');
@@ -264,7 +265,7 @@ async function deleteApiKey(request: NextRequest): Promise<NextResponse> {
     
     // Soft delete API key
     await db.collection('api_keys').updateOne(
-      { _id: keyId },
+  { _id: new ObjectId(keyId) },
       { 
         $set: { 
           isDeleted: true,
@@ -277,7 +278,7 @@ async function deleteApiKey(request: NextRequest): Promise<NextResponse> {
     
     // Log API key deletion
     await db.collection('api_key_logs').insertOne({
-      userId: user.id,
+      userId: user.userId,
       apiKeyId: keyId,
       action: 'deleted',
       createdAt: new Date()
@@ -314,9 +315,10 @@ async function getApiKeyUsage(request: NextRequest): Promise<NextResponse> {
     
     // Verify API key ownership
     const apiKey = await db.collection('api_keys').findOne({
-      _id: keyId,
-      userId: user.id
+    _id: new ObjectId(keyId),
+    userId: user.userId
     });
+
     
     if (!apiKey) {
       throw ErrorFactory.notFound('API key');

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { connectToDatabase } from '../../../../lib/mongodb';
-import { authenticateRequest } from '../../../../lib/auth-middleware';
+import { connectToDatabase } from '@/lib/mongodb';
+import { authenticateRequest } from '@/lib/auth-middleware';
+import { ObjectId } from 'mongodb';
 
 export async function GET(
   request: NextRequest,
@@ -14,7 +15,7 @@ export async function GET(
     
     // Get website details
     const website = await db.collection('websites').findOne({
-      _id: websiteId
+      _id: new ObjectId(websiteId)
     });
     
     if (!website) {
@@ -106,8 +107,8 @@ export async function PUT(
     
     // Check if user owns this website
     const website = await db.collection('websites').findOne({
-      _id: websiteId,
-      userId: user.userId
+      _id: new ObjectId(websiteId),
+      userId: new ObjectId((user as any).userId || (user as any).id)
     });
     
     if (!website) {
@@ -131,7 +132,7 @@ export async function PUT(
     
     // Update website
     const result = await db.collection('websites').updateOne(
-      { _id: websiteId },
+      { _id: new ObjectId(websiteId) },
       { $set: updateData }
     );
     
@@ -144,7 +145,7 @@ export async function PUT(
     
     // Log the update
     await db.collection('audit_logs').insertOne({
-      userId: user.userId,
+      userId: new ObjectId((user as any).userId || (user as any).id),
       action: 'website_updated',
       details: {
         websiteId,
@@ -189,8 +190,8 @@ export async function DELETE(
     
     // Check if user owns this website
     const website = await db.collection('websites').findOne({
-      _id: websiteId,
-      userId: user.userId
+      _id: new ObjectId(websiteId),
+      userId: new ObjectId((user as any).userId || (user as any).id)
     });
     
     if (!website) {
@@ -202,14 +203,14 @@ export async function DELETE(
     
     // Delete website and related data
     await Promise.all([
-      db.collection('websites').deleteOne({ _id: websiteId }),
+      db.collection('websites').deleteOne({ _id: new ObjectId(websiteId) }),
       db.collection('analytics').deleteOne({ websiteId: websiteId }),
       db.collection('view_logs').deleteMany({ websiteId: websiteId })
     ]);
     
     // Log the deletion
     await db.collection('audit_logs').insertOne({
-      userId: user.userId,
+      userId: new ObjectId((user as any).userId || (user as any).id),
       action: 'website_deleted',
       details: {
         websiteId,

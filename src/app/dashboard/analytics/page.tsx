@@ -42,10 +42,12 @@ interface AdvancedAnalytics {
   }>;
 }
 
+type UserPlan = 'basic' | 'pro' | 'enterprise';
+
 export default function AnalyticsPage() {
   const [basicAnalytics, setBasicAnalytics] = useState<BasicAnalytics | null>(null);
   const [advancedAnalytics, setAdvancedAnalytics] = useState<AdvancedAnalytics | null>(null);
-  const [userPlan, setUserPlan] = useState<string>('basic');
+  const [userPlan, setUserPlan] = useState<UserPlan>('basic');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -88,7 +90,7 @@ export default function AnalyticsPage() {
         });
 
         // Determine user plan (this should come from user data)
-        const plan = 'basic'; // Default to basic for now
+        const plan = 'basic' as UserPlan; // Default to basic for now
         setUserPlan(plan);
 
         // If user has Pro+ plan and websites, fetch advanced analytics
@@ -370,15 +372,23 @@ export default function AnalyticsPage() {
               </div>
               <div className="bg-white/10 rounded-lg p-4">
                 <h4 className="font-semibold mb-2">📱 Device Insights</h4>
-                <p className="text-sm text-blue-100">Understand your audience's device preferences</p>
+                <p className="text-sm text-blue-100">Understand how users access your affiliate sites</p>
               </div>
             </div>
-            <button
-              onClick={handleUpgrade}
-              className="bg-white text-blue-600 font-semibold py-3 px-8 rounded-lg hover:bg-blue-50 transition-colors"
-            >
-              Upgrade to Pro - $29/month
-            </button>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <button
+                onClick={handleUpgrade}
+                className="bg-white text-blue-600 px-8 py-3 rounded-lg font-semibold hover:bg-blue-50 transition-colors"
+              >
+                Upgrade to Pro - $29/month
+              </button>
+              <button
+                onClick={handleUpgrade}
+                className="bg-yellow-500 text-white px-8 py-3 rounded-lg font-semibold hover:bg-yellow-600 transition-colors"
+              >
+                Go Enterprise - $99/month
+              </button>
+            </div>
           </div>
         )}
       </div>
