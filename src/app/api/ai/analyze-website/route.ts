@@ -96,14 +96,8 @@ Format the response as a structured JSON object with scores, assessments, and ac
     // Log analysis for analytics
     console.log(`Website analyzed: ${url || 'content'}, plan: ${currentPlan}`)
 
-    const response = NextResponse.json({
     return NextResponse.json({
       success: true,
-    });
-    response.headers.set("Access-Control-Allow-Origin", "*");
-    response.headers.set("Access-Control-Allow-Methods", "POST");
-    response.headers.set("Access-Control-Allow-Headers", "Content-Type");
-    return response;
       analysis,
       metadata: {
         url,
@@ -128,7 +122,6 @@ Format the response as a structured JSON object with scores, assessments, and ac
 }
 
 export async function GET() {
-    const response = NextResponse.json({
   return NextResponse.json({
     message: 'AFFILIFY AI Website Analyzer API',
     status: 'active',
