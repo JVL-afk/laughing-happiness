@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
 // Initialize Gemini AI
-if (!process.env.GEMINI_API_KEY) {
-  return NextResponse.json({ error: "API key not configured" }, { status: 500 });
 }
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!)
 
