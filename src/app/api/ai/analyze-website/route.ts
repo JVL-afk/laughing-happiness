@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     // Plan-based limitations
     const planLimits = {
       free: { maxAnalysis: 'basic', features: ['seo'] },
-      pro: { maxAnalysis: 'detailed', features: ['seo', 'conversion', 'competitor'] },
+      pro: { maxAnalysis: 'advanced', features: ['seo', 'conversion', 'competitor'] },
       enterprise: { maxAnalysis: 'comprehensive', features: ['seo', 'conversion', 'competitor', 'custom'] }
     }
 
@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
 Analyze this affiliate website and provide detailed insights:
 
 Website URL: ${url || 'Content provided directly'}
+
 Plan: ${currentPlan}
 Analysis Level: ${limits.maxAnalysis}
 
@@ -110,21 +111,10 @@ Format the response as a structured JSON object with scores, assessments, and ac
 
   } catch (error) {
     console.error('AI Analysis Error:', error)
-    
     return NextResponse.json(
-      { 
-        error: 'Failed to analyze website',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
+      { error: 'Analysis failed' },
       { status: 500 }
     )
   }
 }
 
-export async function GET() {
-  return NextResponse.json({
-    message: 'AFFILIFY AI Website Analyzer API',
-    status: 'active',
-    version: '1.0.0'
-  })
-}
