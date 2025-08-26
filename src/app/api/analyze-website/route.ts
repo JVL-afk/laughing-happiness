@@ -4,6 +4,7 @@ import { withErrorHandler, ErrorFactory, ValidationHelper } from '../../../lib/e
 import { rateLimit, userRateLimiter } from '../../../lib/rate-limit';
 import { authenticateRequest } from '../../../lib/auth-middleware';
 import { EnvironmentConfig } from '../../../lib/environment';
+import { ObjectId } from 'mongodb';
 
 // Google AI configuration
 const GOOGLE_AI_API_KEY = EnvironmentConfig.googleAI.apiKey;
