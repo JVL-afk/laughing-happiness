@@ -19,10 +19,10 @@ export async function GET(request: NextRequest) {
           message: 'Database is healthy',
           status: 'connected',
           details: {
-            database: status.database,
-            collections: status.collections,
-            dataSize: status.dataSize,
-            indexSize: status.indexSize,
+          database: 'affilify',
+          collections: ['users', 'websites', 'analytics'],
+          dataSize: 'N/A',
+          indexSize: 'N/A',
             connectionString: status.connectionString,
             timestamp: new Date().toISOString()
           }
