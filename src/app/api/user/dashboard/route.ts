@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     
     // Get user's complete profile
     const userProfile = await db.collection('users').findOne(
-      { _id: new ObjectId(user.userId) }
+      { _id: new ObjectId(user.userId) },
       { projection: { password: 0 } } // Exclude password
     );
     
