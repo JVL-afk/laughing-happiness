@@ -77,7 +77,7 @@ async function createCheckoutSession(request: NextRequest): Promise<NextResponse
     
     // Create or retrieve Stripe customer
     let stripeCustomer;
-    const existingCustomer = await db.collection('users').findOne({ _id: user.userId });
+    const existingCustomer = await db.collection('users').findOne({ _id: new ObjectId(user.userId) });
     
     if (existingCustomer?.stripeCustomerId) {
       stripeCustomer = await stripe.customers.retrieve(existingCustomer.stripeCustomerId.toString());
