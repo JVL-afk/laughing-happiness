@@ -1,5 +1,5 @@
 // app/api/ai/analyze-website/route.ts
-// FIXED VERSION - Resolves 400/500 errors with comprehensive analysis
+// FINAL FIXED VERSION - Resolves ObjectId TypeScript error
 
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -7,6 +7,8 @@ import puppeteer from 'puppeteer';
 import * as cheerio from 'cheerio';
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
+import { ObjectId } from 'mongodb';
+import { connectToDatabase } from '../../../lib/mongodb';
 
 // Request validation schema
 const analyzeWebsiteSchema = z.object({
@@ -143,8 +145,8 @@ export async function POST(request: NextRequest) {
 
     const { websiteUrl, analysisType, includeCompetitorAnalysis } = validationResult.data;
 
-    // Optional authentication (for rate limiting)
-    let userId = null;
+    // Optional authentication (for rate limiting and usage tracking)
+    let userId: string | null = null;
     const authHeader = request.headers.get('authorization');
     if (authHeader && authHeader.startsWith('Bearer ')) {
       try {
@@ -237,7 +239,7 @@ Return ONLY a JSON object with this structure:
     }
   ],
   "affiliateOptimization": {
-    "conversionPotential": "High/Medium/Low",
+    "conversionPotential": "High",
     "trustSignals": ["signal1", "signal2"],
     "improvementAreas": ["area1", "area2"],
     "competitiveAdvantages": ["advantage1", "advantage2"]
@@ -269,6 +271,23 @@ Be specific, actionable, and focus on affiliate marketing success!
       );
     }
 
+    // Update user usage statistics if authenticated
+    if (userId) {
+      try {
+        const { db } = await connectToDatabase();
+        await db.collection('users').updateOne(
+          { _id: new ObjectId(userId) }, // FIXED: Use ObjectId constructor
+          { 
+            $inc: { 'usage.aiRequestsThisMonth': 1 },
+            $set: { lastActivity: new Date() }
+          }
+        );
+      } catch (error) {
+        console.error('Error updating user usage:', error);
+        // Continue without failing the request
+      }
+    }
+
     // Compile final analysis report
     const analysisReport = {
       url: websiteUrl,
@@ -298,12 +317,12 @@ Be specific, actionable, and focus on affiliate marketing success!
         conversionScore: aiAnalysis.conversionScore
       },
       
-      // Gaming elements
+      // Achievement badges for money earned (no gaming level-up)
       achievements: [],
       levelUp: false
     };
 
-    // Add gaming achievements based on scores
+    // Add achievement badges based on scores
     if (aiAnalysis.overallScore >= 90) {
       analysisReport.achievements.push('🏆 Website Excellence Master');
     }
@@ -353,4 +372,3 @@ export async function OPTIONS(request: NextRequest) {
     },
   });
 }
-
