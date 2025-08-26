@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     // Get detailed database status
     const status = await getDatabaseStatus();
     
-    if (status.connected) {
+    if (status.status === 'connected') {
       console.log('✅ Database health check passed');
       return NextResponse.json(
         {
