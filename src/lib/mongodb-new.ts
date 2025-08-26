@@ -1,7 +1,7 @@
-// lib/mongodb.ts
-// MONGODB CONNECTION - Fixed version with proper error handling
+// lib/mongodb-new.ts
+// MONGODB NEW - Includes all missing exports for backward compatibility
 
-import { MongoClient, Db } from 'mongodb';
+import { MongoClient, Db, Collection } from 'mongodb';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please add your MongoDB URI to .env.local');
@@ -19,8 +19,6 @@ let client: MongoClient;
 let clientPromise: Promise<MongoClient>;
 
 if (process.env.NODE_ENV === 'development') {
-  // In development mode, use a global variable so that the value
-  // is preserved across module reloads caused by HMR (Hot Module Replacement).
   let globalWithMongo = global as typeof globalThis & {
     _mongoClientPromise?: Promise<MongoClient>;
   };
@@ -31,7 +29,6 @@ if (process.env.NODE_ENV === 'development') {
   }
   clientPromise = globalWithMongo._mongoClientPromise;
 } else {
-  // In production mode, it's best to not use a global variable.
   client = new MongoClient(uri, options);
   clientPromise = client.connect();
 }
@@ -39,9 +36,8 @@ if (process.env.NODE_ENV === 'development') {
 export async function connectToDatabase(): Promise<{ client: MongoClient; db: Db }> {
   try {
     const client = await clientPromise;
-    const db = client.db('affilify'); // Database name
+    const db = client.db('affilify');
     
-    // Test the connection
     await db.admin().ping();
     
     return { client, db };
@@ -51,7 +47,83 @@ export async function connectToDatabase(): Promise<{ client: MongoClient; db: Db
   }
 }
 
-// Helper function to handle database operations with error handling
+// Get user collection
+export async function getUserCollection(): Promise<Collection> {
+  const { db } = await connectToDatabase();
+  return db.collection('users');
+}
+
+// Get websites collection
+export async function getWebsiteCollection(): Promise<Collection> {
+  const { db } = await connectToDatabase();
+  return db.collection('websites');
+}
+
+// Get analytics collection
+export async function getAnalyticsCollection(): Promise<Collection> {
+  const { db } = await connectToDatabase();
+  return db.collection('analytics');
+}
+
+// Database health check
+export async function getDatabaseStatus() {
+  try {
+    const { db } = await connectToDatabase();
+    const result = await db.admin().ping();
+    
+    return {
+      status: 'connected',
+      ping: result,
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    return {
+      status: 'error',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
+// Comprehensive database health check
+export async function checkDatabaseHealth() {
+  try {
+    const { db } = await connectToDatabase();
+    
+    // Test basic connection
+    await db.admin().ping();
+    
+    // Test collections
+    const collections = await db.listCollections().toArray();
+    const collectionNames = collections.map(c => c.name);
+    
+    // Test user collection
+    const userCollection = db.collection('users');
+    const userCount = await userCollection.countDocuments();
+    
+    // Test websites collection
+    const websiteCollection = db.collection('websites');
+    const websiteCount = await websiteCollection.countDocuments();
+    
+    return {
+      status: 'healthy',
+      collections: collectionNames,
+      stats: {
+        users: userCount,
+        websites: websiteCount
+      },
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    return {
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
+// Helper function for database operations with error handling
 export async function withDatabase<T>(
   operation: (db: Db) => Promise<T>
 ): Promise<T> {
@@ -65,4 +137,3 @@ export async function withDatabase<T>(
 }
 
 export default clientPromise;
-
