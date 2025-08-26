@@ -94,7 +94,7 @@ async function createCheckoutSession(request: NextRequest): Promise<NextResponse
       // Update user with Stripe customer ID
       await db.collection('users').updateOne(
         { _id: new ObjectId(user.userId) }
-        { 
+        ,
           $set: { 
             stripeCustomerId: stripeCustomer.id,
             updatedAt: new Date()
