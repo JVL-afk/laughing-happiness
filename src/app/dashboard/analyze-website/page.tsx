@@ -1,298 +1,550 @@
+// app/dashboard/analyze-website/page.tsx
+// FIXED FRONTEND COMPONENT - Resolves 400/500 errors
+
 'use client';
 
-import { useState, useTransition } from 'react';
-import { Search, BarChart3, Zap, Shield, Globe, Clock, Eye, Layers, TrendingUp } from 'lucide-react';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface AnalysisResult {
   url: string;
-  performance: number;
-  accessibility: number;
-  bestPractices: number;
-  seo: number;
-  loadingTime: number;
-  firstContentfulPaint: number;
-  largestContentfulPaint: number;
-  cumulativeLayoutShift: number;
-  analyzedAt: Date;
+  analyzedAt: string;
+  analysisType: string;
+  performance: {
+    loadTime: number;
+    metrics: any;
+    score: number;
+  };
+  content: any;
+  insights: {
+    overallGrade: string;
+    overallScore: number;
+    performanceScore: number;
+    seoScore: number;
+    conversionScore: number;
+    accessibilityScore: number;
+    mobileScore: number;
+    securityScore: number;
+    summary: string;
+    strengths: string[];
+    weaknesses: string[];
+    recommendations: Array<{
+      category: string;
+      priority: string;
+      action: string;
+      impact: string;
+    }>;
+    affiliateOptimization: {
+      conversionPotential: string;
+      trustSignals: string[];
+      improvementAreas: string[];
+      competitiveAdvantages: string[];
+    };
+    technicalIssues: string[];
+    priorityActions: string[];
+  };
+  quickStats: {
+    overallGrade: string;
+    overallScore: number;
+    loadTime: number;
+    wordCount: number;
+    seoScore: number;
+    conversionScore: number;
+  };
+  achievements: string[];
 }
 
-export default function AnalyzeWebsitePage() {
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+export default function AnalyzeWebsite() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [isPending, startTransition] = useTransition();
+  const [success, setSuccess] = useState('');
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
 
-  // ✅ FIXED: Proper async function with error handling
-  const analyzeWebsiteAction = async (formData: FormData): Promise<void> => {
-    const url = formData.get('url') as string;
+  // Form state
+  const [formData, setFormData] = useState({
+    websiteUrl: '',
+    analysisType: 'comprehensive',
+    includeCompetitorAnalysis: false
+  });
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value, type } = e.target;
     
-    if (!url) {
-      setError('Please enter a valid URL');
-      return;
-    }
-
-    // ✅ FIXED: URL validation
-    try {
-      new URL(url);
-    } catch {
-      setError('Please enter a valid URL (e.g., https://example.com)');
-      return;
-    }
-
-    try {
-      setError('');
-      
-      const response = await fetch('/api/ai/analyze-website', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (result.success) {
-        setAnalysis(result.analysis);
-        setError('');
-      } else {
-        setError(result.error || 'Failed to analyze website');
-        setAnalysis(null);
-      }
-    } catch (err: any) {
-      console.error('Analysis error:', err);
-      setError(err.message || 'Network error. Please try again.');
-      setAnalysis(null);
+    if (type === 'checkbox') {
+      const checked = (e.target as HTMLInputElement).checked;
+      setFormData(prev => ({
+        ...prev,
+        [name]: checked
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }));
     }
   };
 
-  // ✅ FIXED: Proper form submission handler
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+  const validateForm = () => {
+    if (!formData.websiteUrl) {
+      setError('Website URL is required');
+      return false;
+    }
+
+    // Validate URL format
+    try {
+      new URL(formData.websiteUrl);
+    } catch {
+      setError('Please enter a valid URL (include http:// or https://)');
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     
-    startTransition(() => {
-      analyzeWebsiteAction(formData);
-    });
+    if (!validateForm()) {
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    setAnalysisResult(null);
+
+    try {
+      // Prepare request data
+      const requestData = {
+        websiteUrl: formData.websiteUrl.trim(),
+        analysisType: formData.analysisType,
+        includeCompetitorAnalysis: formData.includeCompetitorAnalysis
+      };
+
+      console.log('Sending analysis request:', requestData);
+
+      // Get auth token (optional for analysis)
+      const token = localStorage.getItem('authToken');
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch('/api/ai/analyze-website', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestData),
+      });
+
+      const data = await response.json();
+      console.log('Analysis response:', data);
+
+      if (response.ok) {
+        setSuccess('Website analysis completed successfully! 🎉');
+        setAnalysisResult(data.analysis);
+      } else {
+        setError(data.message || data.error || 'Failed to analyze website');
+      }
+
+    } catch (error) {
+      console.error('Error analyzing website:', error);
+      setError('Network error. Please check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getGradeColor = (grade: string) => {
+    switch (grade) {
+      case 'A': return 'text-green-400';
+      case 'B': return 'text-blue-400';
+      case 'C': return 'text-yellow-400';
+      case 'D': return 'text-orange-400';
+      case 'F': return 'text-red-400';
+      default: return 'text-gray-400';
+    }
   };
 
   const getScoreColor = (score: number) => {
     if (score >= 90) return 'text-green-400';
+    if (score >= 80) return 'text-blue-400';
     if (score >= 70) return 'text-yellow-400';
+    if (score >= 60) return 'text-orange-400';
     return 'text-red-400';
   };
 
-  const getScoreBg = (score: number) => {
-    if (score >= 90) return 'bg-green-500/20 border-green-500/30';
-    if (score >= 70) return 'bg-yellow-500/20 border-yellow-500/30';
-    return 'bg-red-500/20 border-red-500/30';
+  const getPriorityColor = (priority: string) => {
+    switch (priority.toLowerCase()) {
+      case 'high': return 'bg-red-500/20 text-red-300 border-red-500';
+      case 'medium': return 'bg-yellow-500/20 text-yellow-300 border-yellow-500';
+      case 'low': return 'bg-green-500/20 text-green-300 border-green-500';
+      default: return 'bg-gray-500/20 text-gray-300 border-gray-500';
+    }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-6">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
+      <div className="container mx-auto px-4 py-8">
         {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-4xl md:text-5xl font-bold text-white mb-4">
-            Website Performance Analyzer
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-white mb-4">
+            🔍 Website Performance Analyzer
           </h1>
-          <p className="text-xl text-gray-300 max-w-3xl mx-auto">
+          <p className="text-xl text-gray-300">
             Get comprehensive insights into your website's performance, accessibility, SEO, and best practices with our advanced analysis tool.
           </p>
         </div>
 
+        {/* Error/Success Messages */}
+        {error && (
+          <div className="bg-red-500/20 border border-red-500 text-red-100 px-4 py-3 rounded-lg mb-6">
+            <div className="flex items-center">
+              <span className="text-red-400 mr-2">⚠️</span>
+              {error}
+            </div>
+          </div>
+        )}
+
+        {success && (
+          <div className="bg-green-500/20 border border-green-500 text-green-100 px-4 py-3 rounded-lg mb-6">
+            <div className="flex items-center">
+              <span className="text-green-400 mr-2">✅</span>
+              {success}
+            </div>
+          </div>
+        )}
+
         {/* Analysis Form */}
-        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20 mb-8">
+        <div className="bg-white/10 backdrop-blur-lg rounded-xl p-8 border border-white/20 mb-8">
+          <h2 className="text-2xl font-bold text-white mb-6">
+            🎯 Website URL to Analyze
+          </h2>
+
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label htmlFor="url" className="block text-lg font-semibold text-white mb-3">
-                Website URL to Analyze
-              </label>
-              <div className="relative">
-                <Globe className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Website URL */}
+              <div className="lg:col-span-2">
+                <label className="block text-white font-semibold mb-2">
+                  Website URL to Analyze *
+                </label>
                 <input
                   type="url"
-                  id="url"
-                  name="url"
-                  placeholder="https://example.com"
-                  className="w-full pl-12 pr-4 py-4 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  name="websiteUrl"
+                  value={formData.websiteUrl}
+                  onChange={handleInputChange}
+                  placeholder="https://www.amazon.com/Aroma-Housewares-ARC-914SBD-Cool-Touch-Stainless/dp/B007WQ9YNO"
+                  className="w-full px-4 py-3 bg-white/20 border border-white/30 rounded-lg text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
-                  disabled={isPending}
                 />
+              </div>
+
+              {/* Analysis Type */}
+              <div>
+                <label className="block text-white font-semibold mb-2">
+                  Analysis Type
+                </label>
+                <select
+                  name="analysisType"
+                  value={formData.analysisType}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 bg-white/20 border border-white/30 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="basic">Basic Analysis</option>
+                  <option value="comprehensive">Comprehensive Analysis</option>
+                  <option value="seo">SEO Focused</option>
+                  <option value="performance">Performance Focused</option>
+                </select>
+              </div>
+
+              {/* Competitor Analysis */}
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  name="includeCompetitorAnalysis"
+                  checked={formData.includeCompetitorAnalysis}
+                  onChange={handleInputChange}
+                  className="mr-3 h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label className="text-white font-semibold">
+                  Include Competitor Analysis (Pro Feature)
+                </label>
               </div>
             </div>
 
+            {/* Submit Button */}
             <button
               type="submit"
-              disabled={isPending}
-              className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-bold py-4 px-8 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              disabled={loading}
+              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-4 px-6 rounded-lg font-bold text-lg hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isPending ? (
-                <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                  <span>Analyzing...</span>
-                </>
+              {loading ? (
+                <div className="flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-3"></div>
+                  Analyzing Website...
+                </div>
               ) : (
-                <>
-                  <Search className="w-5 h-5" />
-                  <span>Analyze Website</span>
-                </>
+                '🔍 Analyze Website'
               )}
             </button>
           </form>
-
-          {error && (
-            <div className="mt-6 bg-red-500/20 border border-red-500/50 rounded-lg p-4">
-              <p className="text-red-200">{error}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Features */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
-            <BarChart3 className="w-8 h-8 text-purple-400 mb-4" />
-            <h3 className="text-lg font-semibold text-white mb-2">Performance Metrics</h3>
-            <p className="text-gray-300 text-sm">Core Web Vitals, loading times, and optimization scores</p>
-          </div>
-
-          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
-            <Shield className="w-8 h-8 text-green-400 mb-4" />
-            <h3 className="text-lg font-semibold text-white mb-2">Accessibility Check</h3>
-            <p className="text-gray-300 text-sm">WCAG compliance and accessibility best practices</p>
-          </div>
-
-          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
-            <TrendingUp className="w-8 h-8 text-blue-400 mb-4" />
-            <h3 className="text-lg font-semibold text-white mb-2">SEO Analysis</h3>
-            <p className="text-gray-300 text-sm">Search engine optimization recommendations</p>
-          </div>
-
-          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
-            <Zap className="w-8 h-8 text-yellow-400 mb-4" />
-            <h3 className="text-lg font-semibold text-white mb-2">Best Practices</h3>
-            <p className="text-gray-300 text-sm">Industry standards and development guidelines</p>
-          </div>
         </div>
 
         {/* Analysis Results */}
-        {analysis && (
-          <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 border border-white/20">
-            <div className="mb-8">
-              <h2 className="text-3xl font-bold text-white mb-4">Analysis Results</h2>
-              <div className="flex items-center justify-between text-gray-300">
-                <span>Analyzed: {analysis.url}</span>
-                <span className="flex items-center space-x-2">
-                  <Clock className="w-4 h-4" />
-                  <span>{new Date(analysis.analyzedAt).toLocaleString()}</span>
-                </span>
+        {analysisResult && (
+          <div className="space-y-8">
+            {/* Quick Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20 text-center">
+                <div className={`text-3xl font-bold ${getGradeColor(analysisResult.quickStats.overallGrade)}`}>
+                  {analysisResult.quickStats.overallGrade}
+                </div>
+                <div className="text-sm text-gray-300">Overall Grade</div>
+              </div>
+              
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20 text-center">
+                <div className={`text-3xl font-bold ${getScoreColor(analysisResult.quickStats.overallScore)}`}>
+                  {analysisResult.quickStats.overallScore}
+                </div>
+                <div className="text-sm text-gray-300">Overall Score</div>
+              </div>
+
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20 text-center">
+                <div className="text-3xl font-bold text-blue-400">
+                  {analysisResult.quickStats.loadTime}ms
+                </div>
+                <div className="text-sm text-gray-300">Load Time</div>
+              </div>
+
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20 text-center">
+                <div className={`text-3xl font-bold ${getScoreColor(analysisResult.quickStats.seoScore)}`}>
+                  {analysisResult.quickStats.seoScore}
+                </div>
+                <div className="text-sm text-gray-300">SEO Score</div>
+              </div>
+
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20 text-center">
+                <div className={`text-3xl font-bold ${getScoreColor(analysisResult.quickStats.conversionScore)}`}>
+                  {analysisResult.quickStats.conversionScore}
+                </div>
+                <div className="text-sm text-gray-300">Conversion</div>
+              </div>
+
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-4 border border-white/20 text-center">
+                <div className="text-3xl font-bold text-purple-400">
+                  {analysisResult.quickStats.wordCount}
+                </div>
+                <div className="text-sm text-gray-300">Words</div>
               </div>
             </div>
 
-            {/* Score Cards */}
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-              <div className={`rounded-xl p-6 border ${getScoreBg(analysis.performance)}`}>
-                <div className={`text-3xl font-bold ${getScoreColor(analysis.performance)} mb-2`}>
-                  {analysis.performance}
+            {/* Achievements */}
+            {analysisResult.achievements.length > 0 && (
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+                <h3 className="text-xl font-bold text-white mb-4">🏆 Achievements Unlocked</h3>
+                <div className="flex flex-wrap gap-3">
+                  {analysisResult.achievements.map((achievement, index) => (
+                    <span
+                      key={index}
+                      className="bg-yellow-500/20 text-yellow-300 px-4 py-2 rounded-full font-semibold border border-yellow-500"
+                    >
+                      {achievement}
+                    </span>
+                  ))}
                 </div>
-                <h3 className="text-lg font-semibold text-white mb-1">Performance</h3>
-                <p className="text-gray-300 text-sm">Loading speed & optimization</p>
+              </div>
+            )}
+
+            {/* Detailed Scores */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+                <h4 className="text-lg font-bold text-white mb-3">⚡ Performance</h4>
+                <div className={`text-4xl font-bold ${getScoreColor(analysisResult.insights.performanceScore)} mb-2`}>
+                  {analysisResult.insights.performanceScore}
+                </div>
+                <div className="text-sm text-gray-300">
+                  Load time: {analysisResult.performance.loadTime}ms
+                </div>
               </div>
 
-              <div className={`rounded-xl p-6 border ${getScoreBg(analysis.accessibility)}`}>
-                <div className={`text-3xl font-bold ${getScoreColor(analysis.accessibility)} mb-2`}>
-                  {analysis.accessibility}
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+                <h4 className="text-lg font-bold text-white mb-3">🔍 SEO</h4>
+                <div className={`text-4xl font-bold ${getScoreColor(analysisResult.insights.seoScore)} mb-2`}>
+                  {analysisResult.insights.seoScore}
                 </div>
-                <h3 className="text-lg font-semibold text-white mb-1">Accessibility</h3>
-                <p className="text-gray-300 text-sm">WCAG compliance</p>
+                <div className="text-sm text-gray-300">Search optimization</div>
               </div>
 
-              <div className={`rounded-xl p-6 border ${getScoreBg(analysis.bestPractices)}`}>
-                <div className={`text-3xl font-bold ${getScoreColor(analysis.bestPractices)} mb-2`}>
-                  {analysis.bestPractices}
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+                <h4 className="text-lg font-bold text-white mb-3">💰 Conversion</h4>
+                <div className={`text-4xl font-bold ${getScoreColor(analysisResult.insights.conversionScore)} mb-2`}>
+                  {analysisResult.insights.conversionScore}
                 </div>
-                <h3 className="text-lg font-semibold text-white mb-1">Best Practices</h3>
-                <p className="text-gray-300 text-sm">Development standards</p>
+                <div className="text-sm text-gray-300">Sales potential</div>
               </div>
 
-              <div className={`rounded-xl p-6 border ${getScoreBg(analysis.seo)}`}>
-                <div className={`text-3xl font-bold ${getScoreColor(analysis.seo)} mb-2`}>
-                  {analysis.seo}
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+                <h4 className="text-lg font-bold text-white mb-3">♿ Accessibility</h4>
+                <div className={`text-4xl font-bold ${getScoreColor(analysisResult.insights.accessibilityScore)} mb-2`}>
+                  {analysisResult.insights.accessibilityScore}
                 </div>
-                <h3 className="text-lg font-semibold text-white mb-1">SEO</h3>
-                <p className="text-gray-300 text-sm">Search optimization</p>
+                <div className="text-sm text-gray-300">User accessibility</div>
+              </div>
+
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+                <h4 className="text-lg font-bold text-white mb-3">📱 Mobile</h4>
+                <div className={`text-4xl font-bold ${getScoreColor(analysisResult.insights.mobileScore)} mb-2`}>
+                  {analysisResult.insights.mobileScore}
+                </div>
+                <div className="text-sm text-gray-300">Mobile experience</div>
+              </div>
+
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+                <h4 className="text-lg font-bold text-white mb-3">🔒 Security</h4>
+                <div className={`text-4xl font-bold ${getScoreColor(analysisResult.insights.securityScore)} mb-2`}>
+                  {analysisResult.insights.securityScore}
+                </div>
+                <div className="text-sm text-gray-300">Security measures</div>
               </div>
             </div>
 
-            {/* Detailed Metrics */}
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-white mb-1">{analysis.loadingTime}s</div>
-                <h4 className="text-sm font-semibold text-gray-300 mb-1">Loading Time</h4>
-                <p className="text-xs text-gray-400">Total page load</p>
+            {/* Summary */}
+            <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+              <h3 className="text-xl font-bold text-white mb-4">📋 Analysis Summary</h3>
+              <p className="text-gray-300 text-lg leading-relaxed">
+                {analysisResult.insights.summary}
+              </p>
+            </div>
+
+            {/* Strengths and Weaknesses */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+                <h3 className="text-xl font-bold text-green-400 mb-4">✅ Strengths</h3>
+                <ul className="space-y-2">
+                  {analysisResult.insights.strengths.map((strength, index) => (
+                    <li key={index} className="text-gray-300 flex items-start">
+                      <span className="text-green-400 mr-2">•</span>
+                      {strength}
+                    </li>
+                  ))}
+                </ul>
               </div>
 
-              <div className="text-center">
-                <div className="text-2xl font-bold text-white mb-1">{analysis.firstContentfulPaint}s</div>
-                <h4 className="text-sm font-semibold text-gray-300 mb-1">First Paint</h4>
-                <p className="text-xs text-gray-400">First Contentful Paint</p>
-              </div>
-
-              <div className="text-center">
-                <div className="text-2xl font-bold text-white mb-1">{analysis.largestContentfulPaint}s</div>
-                <h4 className="text-sm font-semibold text-gray-300 mb-1">Largest Paint</h4>
-                <p className="text-xs text-gray-400">Largest Contentful Paint</p>
-              </div>
-
-              <div className="text-center">
-                <div className="text-2xl font-bold text-white mb-1">{analysis.cumulativeLayoutShift}</div>
-                <h4 className="text-sm font-semibold text-gray-300 mb-1">Layout Shift</h4>
-                <p className="text-xs text-gray-400">Cumulative Layout Shift</p>
+              <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+                <h3 className="text-xl font-bold text-red-400 mb-4">⚠️ Areas for Improvement</h3>
+                <ul className="space-y-2">
+                  {analysisResult.insights.weaknesses.map((weakness, index) => (
+                    <li key={index} className="text-gray-300 flex items-start">
+                      <span className="text-red-400 mr-2">•</span>
+                      {weakness}
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
 
-            {/* Recommendations */}
-            <div>
-              <h3 className="text-2xl font-bold text-white mb-6">Recommendations</h3>
+            {/* Priority Actions */}
+            <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+              <h3 className="text-xl font-bold text-white mb-4">🎯 Priority Actions</h3>
+              <div className="space-y-3">
+                {analysisResult.insights.priorityActions.map((action, index) => (
+                  <div key={index} className="bg-white/10 rounded-lg p-4 border border-white/20">
+                    <div className="flex items-center justify-between">
+                      <span className="text-white font-semibold">
+                        {index + 1}. {action}
+                      </span>
+                      <span className="bg-blue-500/20 text-blue-300 px-3 py-1 rounded-full text-sm border border-blue-500">
+                        Action Required
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Detailed Recommendations */}
+            <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+              <h3 className="text-xl font-bold text-white mb-4">💡 Detailed Recommendations</h3>
               <div className="space-y-4">
-                {analysis.performance < 90 && (
-                  <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-lg p-4">
-                    <p className="text-yellow-200">
-                      <strong>Performance:</strong> Consider optimizing images, minifying CSS/JS, and enabling compression to improve loading times.
-                    </p>
+                {analysisResult.insights.recommendations.map((rec, index) => (
+                  <div key={index} className="bg-white/10 rounded-lg p-4 border border-white/20">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-lg font-semibold text-white">{rec.category}</h4>
+                      <span className={`px-3 py-1 rounded-full text-sm border ${getPriorityColor(rec.priority)}`}>
+                        {rec.priority} Priority
+                      </span>
+                    </div>
+                    <p className="text-gray-300 mb-2">{rec.action}</p>
+                    <p className="text-blue-300 text-sm">Expected Impact: {rec.impact}</p>
                   </div>
-                )}
-                
-                {analysis.accessibility < 90 && (
-                  <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-4">
-                    <p className="text-blue-200">
-                      <strong>Accessibility:</strong> Add alt text to images, improve color contrast, and ensure keyboard navigation works properly.
-                    </p>
+                ))}
+              </div>
+            </div>
+
+            {/* Affiliate Optimization */}
+            <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20">
+              <h3 className="text-xl font-bold text-white mb-4">💰 Affiliate Marketing Optimization</h3>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                  <h4 className="text-lg font-semibold text-green-400 mb-3">
+                    Conversion Potential: {analysisResult.insights.affiliateOptimization.conversionPotential}
+                  </h4>
+                  
+                  <div className="mb-4">
+                    <h5 className="font-semibold text-white mb-2">Trust Signals:</h5>
+                    <ul className="space-y-1">
+                      {analysisResult.insights.affiliateOptimization.trustSignals.map((signal, index) => (
+                        <li key={index} className="text-gray-300 flex items-start">
+                          <span className="text-green-400 mr-2">✓</span>
+                          {signal}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                )}
-                
-                {analysis.seo < 90 && (
-                  <div className="bg-green-500/20 border border-green-500/30 rounded-lg p-4">
-                    <p className="text-green-200">
-                      <strong>SEO:</strong> Add meta descriptions, optimize title tags, and ensure your content is properly structured with headings.
-                    </p>
+                </div>
+
+                <div>
+                  <div className="mb-4">
+                    <h5 className="font-semibold text-white mb-2">Improvement Areas:</h5>
+                    <ul className="space-y-1">
+                      {analysisResult.insights.affiliateOptimization.improvementAreas.map((area, index) => (
+                        <li key={index} className="text-gray-300 flex items-start">
+                          <span className="text-yellow-400 mr-2">⚡</span>
+                          {area}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                )}
-                
-                {analysis.bestPractices < 90 && (
-                  <div className="bg-purple-500/20 border border-purple-500/30 rounded-lg p-4">
-                    <p className="text-purple-200">
-                      <strong>Best Practices:</strong> Update to HTTPS, remove unused code, and follow modern web development standards.
-                    </p>
+
+                  <div>
+                    <h5 className="font-semibold text-white mb-2">Competitive Advantages:</h5>
+                    <ul className="space-y-1">
+                      {analysisResult.insights.affiliateOptimization.competitiveAdvantages.map((advantage, index) => (
+                        <li key={index} className="text-gray-300 flex items-start">
+                          <span className="text-blue-400 mr-2">🚀</span>
+                          {advantage}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                )}
+                </div>
               </div>
             </div>
           </div>
         )}
+
+        {/* Back to Dashboard */}
+        <div className="text-center mt-8">
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="text-blue-400 hover:text-blue-300 font-semibold"
+          >
+            ← Back to Dashboard
+          </button>
+        </div>
       </div>
     </div>
   );
