@@ -84,7 +84,7 @@ async function createCheckoutSession(request: NextRequest): Promise<NextResponse
     } else {
       stripeCustomer = await stripe.customers.create({
         email: user.email,
-        name: user.fullName,
+        name: user.name,
         metadata: {
           userId: user.userId.toString(),
           plan: plan
