@@ -198,7 +198,7 @@ async function handleAnalyzeWebsite(request: NextRequest): Promise<NextResponse>
     
     // Update user usage statistics
     await db.collection('users').updateOne(
-      { _id: user.userId },
+      { _id: new ObjectId(userId) },
       { 
         $inc: { 'usage.aiRequestsThisMonth': 1 },
         $set: { 
