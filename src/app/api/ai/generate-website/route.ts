@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Generate website using Gemini AI
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
     const prompt = `
 Create a professional affiliate marketing website for the following product:
