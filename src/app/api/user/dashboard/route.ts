@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '../../../../lib/mongodb';
 import { authenticateRequest } from '../../../../lib/auth-middleware';
+import { ObjectId } from 'mongodb';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
     
     // Get user's complete profile
     const userProfile = await db.collection('users').findOne(
-      { _id: user.userId },
+      { _id: new ObjectId(user.userId) }
       { projection: { password: 0 } } // Exclude password
     );
     
