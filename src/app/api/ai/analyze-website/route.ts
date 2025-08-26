@@ -8,7 +8,7 @@ import * as cheerio from 'cheerio';
 import { z } from 'zod';
 import jwt from 'jsonwebtoken';
 import { ObjectId } from 'mongodb';
-import { connectToDatabase } from '../../../lib/mongodb';
+import { connectToDatabase } from '@/lib/mongodb';
 
 // Request validation schema
 const analyzeWebsiteSchema = z.object({
