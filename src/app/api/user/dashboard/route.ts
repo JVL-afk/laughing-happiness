@@ -178,7 +178,7 @@ export async function PATCH(request: NextRequest) {
       // Check if email is already taken
       const existingUser = await db.collection('users').findOne({
         email,
-        _id: { $ne: user.userId }
+        _id: { $ne: new ObjectId(user.userId) }
       });
       
       if (existingUser) {
