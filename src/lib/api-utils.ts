@@ -175,7 +175,8 @@ export function checkRateLimit(
   const windowStart = now - windowMs;
   
   // Clean up old entries
-  for (const [key, value] of rateLimitStore.entries()) {
+  for (const entry of Array.from(rateLimitStore.entries())) {
+  const [key, value] = entry;
     if (value.resetTime < now) {
       rateLimitStore.delete(key);
     }
