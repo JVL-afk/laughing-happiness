@@ -196,7 +196,7 @@ export async function PATCH(request: NextRequest) {
     
     // Update user profile
     const result = await db.collection('users').updateOne(
-      { _id: user.userId },
+      { _id: new ObjectId(user.userId) },
       { $set: updateData }
     );
     
