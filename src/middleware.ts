@@ -1,12 +1,11 @@
 // middleware.ts
-// COMPLETE FIXED VERSION - Using jsonwebtoken (no jose dependency needed)
+// PROPERLY FIXED VERSION - Correct authentication logic
 
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-// Define protected routes that require authentication
+// Only protect these specific routes
 const protectedRoutes = [
-  '/dashboard',
   '/dashboard/create-website',
   '/dashboard/analyze-website',
   '/dashboard/my-websites',
@@ -18,36 +17,11 @@ const protectedRoutes = [
   '/dashboard/my-analyses'
 ];
 
-// Define public routes that should redirect authenticated users
-const publicRoutes = [
+// Routes that should redirect to dashboard if already logged in
+const authRoutes = [
   '/login',
-  '/signup',
-  '/forgot-password',
-  '/reset-password'
+  '/signup'
 ];
-
-// Simple JWT verification without external dependencies
-function verifyJWT(token: string): any {
-  try {
-    // Basic JWT structure validation
-    const parts = token.split('.');
-    if (parts.length !== 3) {
-      return null;
-    }
-
-    // Decode payload (basic validation)
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-    
-    // Check if token is expired
-    if (payload.exp && payload.exp < Date.now() / 1000) {
-      return null;
-    }
-
-    return payload;
-  } catch (error) {
-    return null;
-  }
-}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -63,61 +37,52 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Get the token from cookies
-  const token = request.cookies.get('auth-token')?.value || 
-                request.cookies.get('token')?.value ||
-                request.headers.get('authorization')?.replace('Bearer ', '');
+  // Get the token from cookies (check all possible cookie names)
+  const authToken = request.cookies.get('auth-token')?.value ||
+                   request.cookies.get('token')?.value ||
+                   request.cookies.get('authToken')?.value ||
+                   request.cookies.get('jwt')?.value;
 
-  // Verify if user is authenticated
-  let isAuthenticated = false;
-  let user = null;
+  // Simple check if user has any auth token (don't verify here, let API handle it)
+  const hasAuthToken = !!authToken && authToken.length > 10;
 
-  if (token) {
-    user = verifyJWT(token);
-    isAuthenticated = !!user;
-  }
-
-  // Handle protected routes
-  if (protectedRoutes.some(route => pathname.startsWith(route))) {
-    if (!isAuthenticated) {
+  // Handle protected dashboard routes ONLY
+  if (protectedRoutes.some(route => pathname === route || pathname.startsWith(route + '/'))) {
+    if (!hasAuthToken) {
       // Redirect to login with return URL
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
-      
-      // Clear invalid token cookie
-      const response = NextResponse.redirect(loginUrl);
-      response.cookies.delete('auth-token');
-      response.cookies.delete('token');
-      return response;
+      return NextResponse.redirect(loginUrl);
     }
     
-    // User is authenticated, allow access to protected routes
+    // Has token, let the API routes verify it properly
     return NextResponse.next();
   }
 
-  // Handle public routes (login, signup, etc.)
-  if (publicRoutes.includes(pathname)) {
-    if (isAuthenticated) {
-      // Redirect authenticated users to dashboard
+  // Handle /dashboard root - allow both authenticated and unauthenticated
+  if (pathname === '/dashboard') {
+    if (!hasAuthToken) {
+      // Redirect to login
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+    
+    // Has token, allow access
+    return NextResponse.next();
+  }
+
+  // Handle auth routes (login, signup)
+  if (authRoutes.includes(pathname)) {
+    if (hasAuthToken) {
+      // Already logged in, redirect to dashboard
       return NextResponse.redirect(new URL('/dashboard', request.url));
     }
     
-    // User is not authenticated, allow access to public routes
+    // Not logged in, allow access to auth pages
     return NextResponse.next();
   }
 
-  // Handle root redirect
-  if (pathname === '/') {
-    if (isAuthenticated) {
-      // Redirect authenticated users to dashboard
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
-    
-    // Allow unauthenticated users to see homepage
-    return NextResponse.next();
-  }
-
-  // For all other routes, continue normally
+  // For ALL OTHER routes (including homepage), allow access regardless of auth status
+  // This fixes the homepage redirect issue
   return NextResponse.next();
 }
 
