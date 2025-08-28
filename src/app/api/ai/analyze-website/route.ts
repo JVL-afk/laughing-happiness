@@ -1,115 +1,14 @@
 // app/api/ai/analyze-website/route.ts
-// FINAL FIXED VERSION - Resolves ObjectId TypeScript error
+// COMPLETE FIXED VERSION - Puppeteer Chrome configuration resolved
 
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import puppeteer from 'puppeteer';
-import * as cheerio from 'cheerio';
-import { z } from 'zod';
-import jwt from 'jsonwebtoken';
 import { ObjectId } from 'mongodb';
-import { connectToDatabase } from '@/lib/mongodb';
+import { connectToDatabase } from '../../../../lib/mongodb';
+import { authenticateUser } from '../../../../lib/auth-middleware';
 
-// Request validation schema
-const analyzeWebsiteSchema = z.object({
-  websiteUrl: z.string().url('Invalid URL format'),
-  analysisType: z.enum(['basic', 'comprehensive', 'seo', 'performance']).optional().default('comprehensive'),
-  includeCompetitorAnalysis: z.boolean().optional().default(false),
-});
-
-// Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
-
-// Performance analysis function
-async function analyzePerformance(url: string) {
-  let browser;
-  try {
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    
-    // Start performance monitoring
-    const startTime = Date.now();
-    
-    await page.goto(url, { 
-      waitUntil: 'networkidle2',
-      timeout: 30000 
-    });
-    
-    const loadTime = Date.now() - startTime;
-    
-    // Get performance metrics
-    const performanceMetrics = await page.evaluate(() => {
-      const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
-      return {
-        domContentLoaded: navigation.domContentLoadedEventEnd - navigation.domContentLoadedEventStart,
-        loadComplete: navigation.loadEventEnd - navigation.loadEventStart,
-        firstPaint: performance.getEntriesByName('first-paint')[0]?.startTime || 0,
-        firstContentfulPaint: performance.getEntriesByName('first-contentful-paint')[0]?.startTime || 0,
-      };
-    });
-    
-    // Get page content for analysis
-    const content = await page.content();
-    
-    await browser.close();
-    
-    return {
-      loadTime,
-      performanceMetrics,
-      content,
-      success: true
-    };
-    
-  } catch (error) {
-    if (browser) await browser.close();
-    console.error('Performance analysis error:', error);
-    return {
-      loadTime: null,
-      performanceMetrics: null,
-      content: null,
-      success: false,
-      error: error.message
-    };
-  }
-}
-
-// Content analysis function using Cheerio
-function analyzeContent(html: string, url: string) {
-  const $ = cheerio.load(html);
-  
-  return {
-    title: $('title').text() || 'No title found',
-    metaDescription: $('meta[name="description"]').attr('content') || 'No meta description',
-    headings: {
-      h1: $('h1').map((i, el) => $(el).text()).get(),
-      h2: $('h2').map((i, el) => $(el).text()).get(),
-      h3: $('h3').map((i, el) => $(el).text()).get(),
-    },
-    images: $('img').map((i, el) => ({
-      src: $(el).attr('src'),
-      alt: $(el).attr('alt') || 'No alt text',
-      title: $(el).attr('title') || ''
-    })).get(),
-    links: {
-      internal: $('a[href^="/"], a[href^="' + url + '"]').length,
-      external: $('a[href^="http"]:not([href^="' + url + '"])').length,
-      total: $('a[href]').length
-    },
-    forms: $('form').length,
-    scripts: $('script').length,
-    stylesheets: $('link[rel="stylesheet"]').length,
-    wordCount: $('body').text().split(/\s+/).filter(word => word.length > 0).length,
-    hasStructuredData: $('script[type="application/ld+json"]').length > 0,
-    socialMetaTags: {
-      openGraph: $('meta[property^="og:"]').length,
-      twitterCard: $('meta[name^="twitter:"]').length
-    }
-  };
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -119,6 +18,15 @@ export async function POST(request: NextRequest) {
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
+
+    // Authenticate user
+    const user = await authenticateUser(request);
+    if (!user) {
+      return NextResponse.json(
+        { error: 'Authentication required' },
+        { status: 401, headers }
+      );
+    }
 
     // Parse request body
     let body;
@@ -131,233 +39,259 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate request data
-    const validationResult = analyzeWebsiteSchema.safeParse(body);
-    if (!validationResult.success) {
+    const { url, analysisType = 'comprehensive' } = body;
+
+    if (!url) {
       return NextResponse.json(
-        { 
-          error: 'Validation failed',
-          details: validationResult.error.errors
-        },
+        { error: 'Website URL is required' },
         { status: 400, headers }
       );
     }
 
-    const { websiteUrl, analysisType, includeCompetitorAnalysis } = validationResult.data;
-
-    // Optional authentication (for rate limiting and usage tracking)
-    let userId: string | null = null;
-    const authHeader = request.headers.get('authorization');
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      try {
-        const token = authHeader.substring(7);
-        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
-        userId = decoded.userId;
-      } catch (error) {
-        // Continue without authentication for free analysis
-      }
-    }
-
-    // Perform performance analysis
-    console.log('Starting performance analysis for:', websiteUrl);
-    const performanceData = await analyzePerformance(websiteUrl);
-    
-    if (!performanceData.success) {
-      return NextResponse.json(
-        { 
-          error: 'Website analysis failed',
-          message: 'Unable to access the website. Please check the URL and try again.',
-          details: performanceData.error
-        },
-        { status: 400, headers }
-      );
-    }
-
-    // Analyze content structure
-    console.log('Analyzing content structure...');
-    const contentAnalysis = analyzeContent(performanceData.content!, websiteUrl);
-
-    // Generate AI insights using Gemini
-    console.log('Generating AI insights...');
-    const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
-
-    const analysisPrompt = `
-Analyze this website comprehensively and provide actionable insights:
-
-URL: ${websiteUrl}
-Analysis Type: ${analysisType}
-
-PERFORMANCE DATA:
-- Load Time: ${performanceData.loadTime}ms
-- DOM Content Loaded: ${performanceData.performanceMetrics?.domContentLoaded}ms
-- First Contentful Paint: ${performanceData.performanceMetrics?.firstContentfulPaint}ms
-
-CONTENT ANALYSIS:
-- Title: ${contentAnalysis.title}
-- Meta Description: ${contentAnalysis.metaDescription}
-- Word Count: ${contentAnalysis.wordCount}
-- Images: ${contentAnalysis.images.length}
-- Internal Links: ${contentAnalysis.links.internal}
-- External Links: ${contentAnalysis.links.external}
-- H1 Tags: ${contentAnalysis.headings.h1.length}
-- H2 Tags: ${contentAnalysis.headings.h2.length}
-- Forms: ${contentAnalysis.forms}
-- Structured Data: ${contentAnalysis.hasStructuredData ? 'Yes' : 'No'}
-
-Provide a comprehensive analysis with:
-
-1. PERFORMANCE SCORE (0-100) with specific recommendations
-2. SEO ANALYSIS with actionable improvements
-3. CONVERSION OPTIMIZATION suggestions
-4. ACCESSIBILITY ASSESSMENT
-5. MOBILE RESPONSIVENESS evaluation
-6. SECURITY CONSIDERATIONS
-7. AFFILIATE MARKETING OPTIMIZATION tips
-8. COMPETITIVE ADVANTAGES and weaknesses
-9. PRIORITY ACTION ITEMS (top 5)
-10. OVERALL GRADE (A-F) with explanation
-
-Return ONLY a JSON object with this structure:
-{
-  "overallGrade": "A",
-  "overallScore": 85,
-  "performanceScore": 78,
-  "seoScore": 82,
-  "conversionScore": 88,
-  "accessibilityScore": 75,
-  "mobileScore": 90,
-  "securityScore": 85,
-  "summary": "Brief overall assessment",
-  "strengths": ["strength1", "strength2", "strength3"],
-  "weaknesses": ["weakness1", "weakness2", "weakness3"],
-  "recommendations": [
-    {
-      "category": "Performance",
-      "priority": "High",
-      "action": "Specific action to take",
-      "impact": "Expected improvement"
-    }
-  ],
-  "affiliateOptimization": {
-    "conversionPotential": "High",
-    "trustSignals": ["signal1", "signal2"],
-    "improvementAreas": ["area1", "area2"],
-    "competitiveAdvantages": ["advantage1", "advantage2"]
-  },
-  "technicalIssues": ["issue1", "issue2"],
-  "priorityActions": ["action1", "action2", "action3", "action4", "action5"]
-}
-
-Be specific, actionable, and focus on affiliate marketing success!
-`;
-
-    let aiAnalysis;
+    // Validate URL format
+    let websiteUrl;
     try {
-      const result = await model.generateContent(analysisPrompt);
-      const response = await result.response;
-      const aiResponseText = response.text();
-      
-      // Clean and parse AI response
-      const cleanResponse = aiResponseText.replace(/```json\n?|\n?```/g, '').trim();
-      aiAnalysis = JSON.parse(cleanResponse);
+      websiteUrl = new URL(url);
     } catch (error) {
-      console.error('AI Analysis Error:', error);
       return NextResponse.json(
-        { 
-          error: 'AI analysis failed',
-          message: 'Unable to generate insights. Please try again.'
-        },
-        { status: 500, headers }
+        { error: 'Invalid URL format' },
+        { status: 400, headers }
       );
     }
 
-    // Update user usage statistics if authenticated
-    if (userId) {
-      try {
-        const { db } = await connectToDatabase();
-        await db.collection('users').updateOne(
-          { _id: new ObjectId(userId) }, // FIXED: Use ObjectId constructor
-          { 
-            $inc: { 'usage.aiRequestsThisMonth': 1 },
-            $set: { lastActivity: new Date() }
-          }
-        );
-      } catch (error) {
-        console.error('Error updating user usage:', error);
-        // Continue without failing the request
-      }
-    }
+    // Connect to database
+    const { db } = await connectToDatabase();
 
-    // Compile final analysis report
-    const analysisReport = {
-      url: websiteUrl,
-      analyzedAt: new Date().toISOString(),
-      analysisType: analysisType,
-      
-      // Performance metrics
-      performance: {
-        loadTime: performanceData.loadTime,
-        metrics: performanceData.performanceMetrics,
-        score: aiAnalysis.performanceScore
-      },
-      
-      // Content analysis
-      content: contentAnalysis,
-      
-      // AI insights
-      insights: aiAnalysis,
-      
-      // Quick stats for dashboard
-      quickStats: {
-        overallGrade: aiAnalysis.overallGrade,
-        overallScore: aiAnalysis.overallScore,
-        loadTime: performanceData.loadTime,
-        wordCount: contentAnalysis.wordCount,
-        seoScore: aiAnalysis.seoScore,
-        conversionScore: aiAnalysis.conversionScore
-      },
-      
-      // Achievement badges for money earned (no gaming level-up)
-      achievements: [],
-      levelUp: false
-    };
-
-    // Add achievement badges based on scores
-    if (aiAnalysis.overallScore >= 90) {
-      analysisReport.achievements.push('🏆 Website Excellence Master');
-    }
-    if (aiAnalysis.performanceScore >= 85) {
-      analysisReport.achievements.push('⚡ Speed Demon');
-    }
-    if (aiAnalysis.seoScore >= 85) {
-      analysisReport.achievements.push('🔍 SEO Wizard');
-    }
-    if (aiAnalysis.conversionScore >= 85) {
-      analysisReport.achievements.push('💰 Conversion Champion');
-    }
-
-    return NextResponse.json(
-      {
-        success: true,
-        message: 'Website analysis completed successfully!',
-        analysis: analysisReport
-      },
-      { status: 200, headers }
+    // Check user's plan and usage limits
+    const userProfile = await db.collection('users').findOne(
+      { _id: new ObjectId(user.userId) },
+      { projection: { password: 0 } }
     );
 
+    if (!userProfile) {
+      return NextResponse.json(
+        { error: 'User profile not found' },
+        { status: 404, headers }
+      );
+    }
+
+    // Check analysis limits based on plan
+    const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+    const analysisCount = await db.collection('analyses').countDocuments({
+      userId: new ObjectId(user.userId),
+      createdAt: { $gte: new Date(currentMonth + '-01') }
+    });
+
+    const limits = {
+      basic: 5,
+      pro: 25,
+      enterprise: -1 // unlimited
+    };
+
+    const userLimit = limits[userProfile.plan] || limits.basic;
+    if (userLimit !== -1 && analysisCount >= userLimit) {
+      return NextResponse.json(
+        { 
+          error: 'Analysis limit reached',
+          message: `You have reached your monthly limit of ${userLimit} analyses. Upgrade your plan for more analyses.`,
+          currentUsage: analysisCount,
+          limit: userLimit
+        },
+        { status: 429, headers }
+      );
+    }
+
+    let browser;
+    try {
+      // Launch Puppeteer with proper Chrome configuration
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-web-security',
+          '--disable-features=VizDisplayCompositor',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process'
+        ],
+        timeout: 30000
+      });
+
+      const page = await browser.newPage();
+      
+      // Set user agent and viewport
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+      await page.setViewport({ width: 1920, height: 1080 });
+
+      // Navigate to the website with timeout
+      console.log(`Analyzing website: ${websiteUrl.href}`);
+      await page.goto(websiteUrl.href, { 
+        waitUntil: 'networkidle2', 
+        timeout: 30000 
+      });
+
+      // Wait for page to load completely
+      await page.waitForTimeout(3000);
+
+      // Get performance metrics
+      const performanceMetrics = await page.evaluate(() => {
+        const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+        return {
+          loadTime: navigation.loadEventEnd - navigation.loadEventStart,
+          domContentLoaded: navigation.domContentLoadedEventEnd - navigation.domContentLoadedEventStart,
+          firstPaint: performance.getEntriesByName('first-paint')[0]?.startTime || 0,
+          firstContentfulPaint: performance.getEntriesByName('first-contentful-paint')[0]?.startTime || 0,
+        };
+      });
+
+      // Get page content and structure
+      const pageAnalysis = await page.evaluate(() => {
+        const title = document.title;
+        const metaDescription = document.querySelector('meta[name="description"]')?.getAttribute('content') || '';
+        const headings = {
+          h1: Array.from(document.querySelectorAll('h1')).map(h => h.textContent?.trim()).filter(Boolean),
+          h2: Array.from(document.querySelectorAll('h2')).map(h => h.textContent?.trim()).filter(Boolean),
+          h3: Array.from(document.querySelectorAll('h3')).map(h => h.textContent?.trim()).filter(Boolean),
+        };
+        
+        const images = Array.from(document.querySelectorAll('img')).map(img => ({
+          src: img.src,
+          alt: img.alt,
+          hasAlt: Boolean(img.alt)
+        }));
+
+        const links = Array.from(document.querySelectorAll('a')).map(link => ({
+          href: link.href,
+          text: link.textContent?.trim(),
+          isExternal: link.hostname !== window.location.hostname
+        }));
+
+        return {
+          title,
+          metaDescription,
+          headings,
+          images,
+          links,
+          wordCount: document.body.textContent?.split(/\s+/).length || 0,
+          hasSchema: Boolean(document.querySelector('script[type="application/ld+json"]')),
+          mobileViewport: Boolean(document.querySelector('meta[name="viewport"]')),
+        };
+      });
+
+      await browser.close();
+
+      // Generate AI analysis using Gemini
+      const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+      
+      const analysisPrompt = `
+        Analyze this website data and provide comprehensive insights:
+        
+        URL: ${websiteUrl.href}
+        Title: ${pageAnalysis.title}
+        Meta Description: ${pageAnalysis.metaDescription}
+        
+        Performance Metrics:
+        - Load Time: ${performanceMetrics.loadTime}ms
+        - DOM Content Loaded: ${performanceMetrics.domContentLoaded}ms
+        - First Paint: ${performanceMetrics.firstPaint}ms
+        - First Contentful Paint: ${performanceMetrics.firstContentfulPaint}ms
+        
+        Content Structure:
+        - H1 Tags: ${pageAnalysis.headings.h1.length} (${pageAnalysis.headings.h1.join(', ')})
+        - H2 Tags: ${pageAnalysis.headings.h2.length}
+        - H3 Tags: ${pageAnalysis.headings.h3.length}
+        - Images: ${pageAnalysis.images.length} (${pageAnalysis.images.filter(img => !img.hasAlt).length} missing alt text)
+        - Links: ${pageAnalysis.links.length} (${pageAnalysis.links.filter(link => link.isExternal).length} external)
+        - Word Count: ${pageAnalysis.wordCount}
+        - Has Schema: ${pageAnalysis.hasSchema}
+        - Mobile Viewport: ${pageAnalysis.mobileViewport}
+        
+        Please provide:
+        1. Performance Analysis (score out of 100)
+        2. SEO Analysis (score out of 100)
+        3. Content Quality Analysis (score out of 100)
+        4. User Experience Analysis (score out of 100)
+        5. Specific recommendations for improvement
+        6. Overall score and summary
+        
+        Format the response as detailed JSON with scores, analysis, and actionable recommendations.
+      `;
+
+      const result = await model.generateContent(analysisPrompt);
+      const aiAnalysis = result.response.text();
+
+      // Save analysis to database
+      const analysisRecord = {
+        userId: new ObjectId(user.userId),
+        url: websiteUrl.href,
+        analysisType,
+        performanceMetrics,
+        pageAnalysis,
+        aiAnalysis,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+
+      const insertResult = await db.collection('analyses').insertOne(analysisRecord);
+
+      // Update user's analysis count
+      await db.collection('users').updateOne(
+        { _id: new ObjectId(user.userId) },
+        { 
+          $inc: { analysesCreated: 1 },
+          $set: { updatedAt: new Date() }
+        }
+      );
+
+      return NextResponse.json({
+        success: true,
+        analysisId: insertResult.insertedId,
+        analysis: {
+          url: websiteUrl.href,
+          performance: performanceMetrics,
+          content: pageAnalysis,
+          aiInsights: aiAnalysis,
+          createdAt: analysisRecord.createdAt
+        },
+        usage: {
+          current: analysisCount + 1,
+          limit: userLimit === -1 ? 'unlimited' : userLimit,
+          remaining: userLimit === -1 ? 'unlimited' : Math.max(0, userLimit - analysisCount - 1)
+        }
+      }, { status: 200, headers });
+
+    } catch (puppeteerError) {
+      console.error('Puppeteer error:', puppeteerError);
+      
+      if (browser) {
+        await browser.close();
+      }
+
+      return NextResponse.json({
+        error: 'Website analysis failed',
+        message: 'Unable to access the website. Please check the URL and try again.',
+        details: puppeteerError.message
+      }, { status: 500, headers });
+    }
+
   } catch (error) {
-    console.error('Analyze Website Error:', error);
-    return NextResponse.json(
-      { 
-        error: 'Internal server error',
-        message: 'An unexpected error occurred during analysis. Please try again.'
-      },
-      { status: 500, headers: {
+    console.error('Analysis error:', error);
+    
+    return NextResponse.json({
+      error: 'Analysis processing failed',
+      message: 'An error occurred while analyzing the website. Please try again.',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    }, { 
+      status: 500, 
+      headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      }}
-    );
+      }
+    });
   }
 }
 
