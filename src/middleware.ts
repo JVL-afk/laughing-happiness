@@ -1,100 +1,120 @@
+// middleware.ts
+// COMPLETE FIXED VERSION - Proper authentication routing for all dashboard pages
+
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { jwtVerify } from 'jose';
 
-const PUBLIC_ROUTES = [
-  '/',
+// Define protected routes that require authentication
+const protectedRoutes = [
+  '/dashboard',
+  '/dashboard/create-website',
+  '/dashboard/analyze-website',
+  '/dashboard/my-websites',
+  '/dashboard/analytics',
+  '/dashboard/chatbot',
+  '/dashboard/support',
+  '/dashboard/enterprise',
+  '/dashboard/costum-domains',
+  '/dashboard/my-analyses'
+];
+
+// Define public routes that should redirect authenticated users
+const publicRoutes = [
   '/login',
   '/signup',
-  '/pricing',
-  '/features',
-  '/terms',
-  '/privacy',
-  '/docs',
-  '/about-me',
-  '/checkout'
+  '/forgot-password',
+  '/reset-password'
 ];
 
-const PROTECTED_ROUTES = [
-  '/dashboard',
-  '/api/user',
-  '/api/websites',
-  '/api/ai'
+// API routes that don't need middleware processing
+const apiRoutes = [
+  '/api/'
 ];
 
-// ROUTE REDIRECTS - Fix the navigation issue!
-const ROUTE_REDIRECTS = {
-  '/my-websites': '/dashboard/my-websites',
-  '/create-website': '/dashboard/create-website'
-};
-
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Skip middleware for static files and Next.js internals
+  // Skip middleware for API routes, static files, and Next.js internals
   if (
-    pathname.startsWith('/_next') ||
-    pathname.startsWith('/api/auth') ||  // 🔥 CRITICAL FIX: Exclude auth API routes!
-    pathname.includes('.') ||
-    pathname === '/favicon.ico'
+    pathname.startsWith('/api/') ||
+    pathname.startsWith('/_next/') ||
+    pathname.startsWith('/favicon.ico') ||
+    pathname.includes('.')
   ) {
     return NextResponse.next();
   }
 
-  // Handle route redirects FIRST
-  if (ROUTE_REDIRECTS[pathname]) {
-    return NextResponse.redirect(new URL(ROUTE_REDIRECTS[pathname], request.url));
+  // Get the token from cookies
+  const token = request.cookies.get('auth-token')?.value;
+
+  // Verify if user is authenticated
+  let isAuthenticated = false;
+  let user = null;
+
+  if (token) {
+    try {
+      const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'fallback-secret');
+      const { payload } = await jwtVerify(token, secret);
+      isAuthenticated = true;
+      user = payload;
+    } catch (error) {
+      // Token is invalid, remove it
+      console.log('Invalid token, removing cookie');
+      isAuthenticated = false;
+    }
   }
 
-  // Allow access to public routes
-  const isPublicRoute = PUBLIC_ROUTES.some(route => 
-    pathname === route || pathname.startsWith(route + '/')
-  );
-
-  if (isPublicRoute) {
-    return NextResponse.next();
-  }
-
-  // Check if route requires authentication
-  const isProtectedRoute = PROTECTED_ROUTES.some(route => 
-    pathname.startsWith(route)
-  );
-
-  if (isProtectedRoute) {
-    const authToken = request.cookies.get('auth-token')?.value;
-
-    if (!authToken) {
+  // Handle protected routes
+  if (protectedRoutes.some(route => pathname.startsWith(route))) {
+    if (!isAuthenticated) {
+      // Redirect to login with return URL
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', pathname);
       return NextResponse.redirect(loginUrl);
     }
-
-    try {
-      const parts = authToken.split('.');
-      if (parts.length !== 3) {
-        throw new Error('Invalid token structure');
-      }
-
-      const payload = JSON.parse(atob(parts[1]));
-      if (payload.exp && payload.exp < Date.now() / 1000) {
-        throw new Error('Token expired');
-      }
-
-      return NextResponse.next();
-    } catch (error) {
-      const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('redirect', pathname);
-      
-      const response = NextResponse.redirect(loginUrl);
-      response.cookies.delete('auth-token');
-      return response;
-    }
+    
+    // User is authenticated, allow access to protected routes
+    return NextResponse.next();
   }
 
+  // Handle public routes (login, signup, etc.)
+  if (publicRoutes.includes(pathname)) {
+    if (isAuthenticated) {
+      // Redirect authenticated users to dashboard
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+    
+    // User is not authenticated, allow access to public routes
+    return NextResponse.next();
+  }
+
+  // Handle root redirect
+  if (pathname === '/') {
+    if (isAuthenticated) {
+      // Redirect authenticated users to dashboard
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+    
+    // Allow unauthenticated users to see homepage
+    return NextResponse.next();
+  }
+
+  // For all other routes, continue normally
   return NextResponse.next();
 }
 
+// Configure which paths the middleware should run on
 export const config = {
   matcher: [
-    '/((?!api/auth|_next/static|_next/image|favicon.ico).*)',
+    /*
+     * Match all request paths except for the ones starting with:
+     * - api (API routes)
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - public folder files
+     */
+    '/((?!api|_next/static|_next/image|favicon.ico|public).*)',
   ],
 };
