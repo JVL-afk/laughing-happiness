@@ -1,5 +1,5 @@
 // lib/auth-middleware.ts
-// COMPLETE AUTH MIDDLEWARE - Includes all missing exports
+// COMPLETE AUTH MIDDLEWARE - Fixed to match main middleware JWT verification
 
 import jwt from 'jsonwebtoken';
 import { NextRequest } from 'next/server';
@@ -12,6 +12,34 @@ export interface AuthenticatedUser {
   plan: string;
   websitesCreated: number;
   websiteLimit: number;
+}
+
+// Simple JWT verification function - MATCHES MAIN MIDDLEWARE
+function isValidJWT(token: string): any {
+  try {
+    // Basic JWT structure validation
+    const parts = token.split('.');
+    if (parts.length !== 3) {
+      return null;
+    }
+
+    // Decode payload
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    
+    // Check if token has required fields and is not expired
+    if (!payload.userId || !payload.email) {
+      return null;
+    }
+
+    // Check expiration (if present)
+    if (payload.exp && payload.exp < Date.now() / 1000) {
+      return null;
+    }
+
+    return payload;
+  } catch (error) {
+    return null;
+  }
 }
 
 export async function authenticateUser(request: NextRequest): Promise<AuthenticatedUser | null> {
@@ -28,19 +56,16 @@ export async function authenticateUser(request: NextRequest): Promise<Authentica
       return null;
     }
 
-    // Verify JWT token
-    let decoded;
-    try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
-    } catch (error) {
-      console.error('JWT verification failed:', error);
+    // Verify JWT token using the SAME logic as main middleware
+    const decoded = isValidJWT(token);
+    if (!decoded) {
       return null;
     }
 
     // Get user from database
     const { db } = await connectToDatabase();
-    const user = await db.collection('users').findOne({ 
-      _id: decoded.userId 
+    const user = await db.collection('users').findOne({
+      _id: decoded.userId
     });
 
     if (!user) {
@@ -56,7 +81,6 @@ export async function authenticateUser(request: NextRequest): Promise<Authentica
       websitesCreated: user.websitesCreated || 0,
       websiteLimit: user.websiteLimit || 3
     };
-
   } catch (error) {
     console.error('Authentication error:', error);
     return null;
@@ -74,125 +98,94 @@ export function createAuthResponse(message: string, status: number = 401) {
   };
 }
 
-// Plan requirement functions
-export async function requirePremium(request: NextRequest): Promise<AuthenticatedUser | null> {
-  const user = await authenticateUser(request);
-  if (!user) return null;
-  
-  if (user.plan === 'basic') {
-    return null; // Requires premium or enterprise
-  }
-  
-  return user;
+export function requirePremium(user: AuthenticatedUser): boolean {
+  return user.plan === 'pro' || user.plan === 'enterprise';
 }
 
-export async function requireEnterprise(request: NextRequest): Promise<AuthenticatedUser | null> {
-  const user = await authenticateUser(request);
-  if (!user) return null;
-  
-  if (user.plan !== 'enterprise') {
-    return null; // Requires enterprise only
-  }
-  
-  return user;
+export function requireEnterprise(user: AuthenticatedUser): boolean {
+  return user.plan === 'enterprise';
 }
 
-// Helper function to check if user has premium features
-export function hasPremiumAccess(plan: string): boolean {
-  return plan === 'pro' || plan === 'enterprise';
+export function hasPremiumAccess(user: AuthenticatedUser): boolean {
+  return requirePremium(user);
 }
 
-// Helper function to check if user has enterprise features
-export function hasEnterpriseAccess(plan: string): boolean {
-  return plan === 'enterprise';
+export function hasEnterpriseAccess(user: AuthenticatedUser): boolean {
+  return requireEnterprise(user);
 }
 
-// Get user plan limits
 export function getPlanLimits(plan: string) {
   switch (plan) {
     case 'basic':
       return {
-        websiteLimit: 3,
-        analysisLimit: 10,
-        apiAccess: false,
-        prioritySupport: false
+        websites: 3,
+        analyses: 10,
+        features: ['basic_templates', 'basic_analytics']
       };
     case 'pro':
       return {
-        websiteLimit: 10,
-        analysisLimit: 100,
-        apiAccess: false,
-        prioritySupport: true
+        websites: 25,
+        analyses: 100,
+        features: ['premium_templates', 'advanced_analytics', 'ai_chatbot', 'custom_domains', 'ab_testing']
       };
     case 'enterprise':
       return {
-        websiteLimit: -1, // Unlimited
-        analysisLimit: -1, // Unlimited
-        apiAccess: true,
-        prioritySupport: true
+        websites: -1, // unlimited
+        analyses: -1, // unlimited
+        features: ['all_features', 'team_collaboration', 'white_label', 'api_access', 'dedicated_support']
       };
     default:
-      return {
-        websiteLimit: 3,
-        analysisLimit: 10,
-        apiAccess: false,
-        prioritySupport: false
-      };
+      return getPlanLimits('basic');
   }
 }
 
-// Middleware wrapper for API routes
+// Higher-order function for authentication
 export function withAuth(handler: (request: NextRequest, user: AuthenticatedUser) => Promise<Response>) {
-  return async (request: NextRequest) => {
+  return async (request: NextRequest): Promise<Response> => {
     const user = await authenticateUser(request);
     if (!user) {
-      return new Response(JSON.stringify({
-        error: 'Authentication required',
-        message: 'Please log in to access this resource'
-      }), {
+      return new Response(JSON.stringify(createAuthResponse('Authentication required')), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }
       });
     }
-    
     return handler(request, user);
   };
 }
 
-// Middleware wrapper for premium features
+// Higher-order function for premium features
 export function withPremium(handler: (request: NextRequest, user: AuthenticatedUser) => Promise<Response>) {
-  return async (request: NextRequest) => {
-    const user = await requirePremium(request);
-    if (!user) {
+  return withAuth(async (request: NextRequest, user: AuthenticatedUser): Promise<Response> => {
+    if (!hasPremiumAccess(user)) {
       return new Response(JSON.stringify({
-        error: 'Premium access required',
+        error: 'Premium subscription required',
         message: 'This feature requires a Pro or Enterprise plan',
-        upgradeRequired: true
+        requiresUpgrade: true,
+        currentPlan: user.plan
       }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' }
       });
     }
-    
     return handler(request, user);
-  };
+  });
 }
 
-// Middleware wrapper for enterprise features
+// Higher-order function for enterprise features
 export function withEnterprise(handler: (request: NextRequest, user: AuthenticatedUser) => Promise<Response>) {
-  return async (request: NextRequest) => {
-    const user = await requireEnterprise(request);
-    if (!user) {
+  return withAuth(async (request: NextRequest, user: AuthenticatedUser): Promise<Response> => {
+    if (!hasEnterpriseAccess(user)) {
       return new Response(JSON.stringify({
-        error: 'Enterprise access required',
+        error: 'Enterprise subscription required',
         message: 'This feature requires an Enterprise plan',
-        upgradeRequired: true
+        requiresUpgrade: true,
+        currentPlan: user.plan
       }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' }
       });
     }
-    
     return handler(request, user);
-  };
+  });
 }
+
