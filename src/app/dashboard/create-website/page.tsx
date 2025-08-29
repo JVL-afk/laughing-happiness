@@ -56,8 +56,17 @@ export default function CreateWebsite() {
 
   const loadUserData = async () => {
     try {
-      const token = localStorage.getItem('authToken');
-      if (!token) {
+    const token = document.cookie
+  .split('; ')
+  .find(row => row.startsWith('auth-token='))
+  ?.split('=')[1] || 
+  document.cookie
+  .split('; ')
+  .find(row => row.startsWith('token='))
+  ?.split('=')[1] ||
+  localStorage.getItem('authToken') ||
+  localStorage.getItem('token');
+  if (!token) {
         router.push('/login');
         return;
       }
