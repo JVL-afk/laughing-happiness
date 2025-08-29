@@ -1,412 +1,244 @@
+// src/app/api/auth/api-keys/route.ts
+// FIXED - No more TypeScript nightmares!
+
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '../../../../lib/mongodb';
 import { withErrorHandler, ErrorFactory, ValidationHelper } from '../../../../lib/error-handler';
-import { authenticateRequest, requirePremium } from '../../../../lib/auth-middleware';
+import { authenticateUser, hasProAccess } from '../../../../lib/auth-middleware';
 import { rateLimit } from '../../../../lib/rate-limit';
 import { ObjectId } from 'mongodb';
 import crypto from 'crypto';
 
-// API Key utilities
-class APIKeyUtils {
-  // Generate secure API key
-  static generateApiKey(): string {
-    const prefix = 'ak_live_';
-    const randomBytes = crypto.randomBytes(32).toString('hex');
-    return prefix + randomBytes;
-  }
-  
-  // Hash API key for storage
-  static hashApiKey(apiKey: string): string {
-    return crypto.createHash('sha256').update(apiKey).digest('hex');
-  }
-  
-  // Generate key preview for display
-  static generateKeyPreview(apiKey: string): string {
-    const prefix = apiKey.substring(0, 8);
-    return prefix + '****';
-  }
-  
-  // Validate API key format
-  static validateApiKeyFormat(apiKey: string): boolean {
-    return /^ak_live_[a-f0-9]{64}$/.test(apiKey);
-  }
+// Rate limiting for API key operations
+const apiKeyRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 requests per window
+  message: 'Too many API key requests, please try again later.'
+});
+
+// Generate secure API key
+function generateApiKey(): string {
+  return 'ak_' + crypto.randomBytes(32).toString('hex');
 }
 
-// Get user's API keys
+// GET - Retrieve user's API keys (Premium feature)
 async function getUserApiKeys(request: NextRequest): Promise<NextResponse> {
   // Authenticate user (premium feature)
-  const user = await requirePremium(request);
-  if (user instanceof NextResponse) return user;
-  
+  const user = await authenticateUser(request);
+  if (!user) {
+    return NextResponse.json({
+      error: 'Authentication required',
+      message: 'Please log in to access this feature'
+    }, { status: 401 });
+  }
+
+  // Check if user has premium access
+  if (!hasProAccess(user)) {
+    return NextResponse.json({
+      error: 'Pro subscription required',
+      message: 'API keys are a premium feature. Please upgrade to Pro or Enterprise plan.',
+      requiresUpgrade: true,
+      currentPlan: user.plan
+    }, { status: 403 });
+  }
+
   try {
     const { db } = await connectToDatabase();
     
     // Get user's API keys
-    const apiKeys = await db.collection('api_keys').find({
-      userId: user.userId.toString(),
-      isDeleted: { $ne: true }
+    const apikeys = await db.collection('api_keys').find({
+      userId: user.userId,
+      isActive: true
     }).sort({ createdAt: -1 }).toArray();
-    
-    // Format response (hide actual keys)
-    const formattedKeys = apiKeys.map(key => ({
-      id: key._id.toString(),
-      name: key.name,
-      keyPreview: key.keyPreview,
-      createdAt: key.createdAt,
-      lastUsed: key.lastUsed,
-      isActive: key.isActive,
-      usageCount: key.usageCount || 0,
-      rateLimit: key.rateLimit || { requests: 1000, window: 3600000 } // 1000 per hour default
-    }));
-    
+
     return NextResponse.json({
       success: true,
-      data: formattedKeys
+      apiKeys: apikeys.map(key => ({
+        id: key._id,
+        name: key.name,
+        keyPreview: key.key.substring(0, 8) + '...',
+        createdAt: key.createdAt,
+        lastUsed: key.lastUsed,
+        isActive: key.isActive
+      }))
     });
-    
+
   } catch (error) {
     console.error('Error fetching API keys:', error);
-    throw ErrorFactory.database('Failed to fetch API keys');
+    return NextResponse.json({
+      error: 'Internal server error',
+      message: 'Failed to fetch API keys'
+    }, { status: 500 });
   }
 }
 
-// Create new API key
+// POST - Create new API key (Premium feature)
 async function createApiKey(request: NextRequest): Promise<NextResponse> {
-  // Rate limiting
-  const rateLimitResult = await rateLimit(request, 'api', 5, 60); // 5 per minute
-  if (!rateLimitResult.success) {
-    throw ErrorFactory.rateLimit('Too many API key creation attempts');
-  }
-  
+  // Apply rate limiting
+  const rateLimitResult = await apiKeyRateLimit(request);
+  if (rateLimitResult) return rateLimitResult;
+
   // Authenticate user (premium feature)
-  const user = await requirePremium(request);
-  if (user instanceof NextResponse) return user;
-  
-  const body = await request.json();
-  
-  // Validate request body
-  ValidationHelper.validateRequired(body.name, 'name');
-  ValidationHelper.validateLength(body.name, 1, 100, 'name');
-  
-  const { name, rateLimit: customRateLimit } = body;
-  
+  const user = await authenticateUser(request);
+  if (!user) {
+    return NextResponse.json({
+      error: 'Authentication required',
+      message: 'Please log in to access this feature'
+    }, { status: 401 });
+  }
+
+  // Check if user has premium access
+  if (!hasProAccess(user)) {
+    return NextResponse.json({
+      error: 'Pro subscription required',
+      message: 'API keys are a premium feature. Please upgrade to Pro or Enterprise plan.',
+      requiresUpgrade: true,
+      currentPlan: user.plan
+    }, { status: 403 });
+  }
+
   try {
+    const body = await request.json();
+    const { name } = body;
+
+    // Validate input
+    if (!name || typeof name !== 'string' || name.trim().length === 0) {
+      return NextResponse.json({
+        error: 'Invalid input',
+        message: 'API key name is required'
+      }, { status: 400 });
+    }
+
+    if (name.length > 50) {
+      return NextResponse.json({
+        error: 'Invalid input',
+        message: 'API key name must be 50 characters or less'
+      }, { status: 400 });
+    }
+
     const { db } = await connectToDatabase();
     
-    // Check API key limit based on subscription
-    const existingKeysCount = await db.collection('api_keys').countDocuments({
-      userId: user.userId.toString(),
-      isDeleted: { $ne: true }
+    // Check API key limit based on plan
+    const existingKeys = await db.collection('api_keys').countDocuments({
+      userId: user.userId,
+      isActive: true
     });
-    
-    const maxKeys = user.plan === 'pro' ? 5 : 10; // Pro: 5, Enterprise: 10
-    if (existingKeysCount >= maxKeys) {
-      throw ErrorFactory.validation(`Maximum ${maxKeys} API keys allowed for ${user.plan} plan`);
+
+    const keyLimit = user.plan === 'enterprise' ? 10 : 3; // Pro: 3, Enterprise: 10
+    if (existingKeys >= keyLimit) {
+      return NextResponse.json({
+        error: 'API key limit reached',
+        message: `You have reached your API key limit of ${keyLimit}. ${user.plan === 'pro' ? 'Upgrade to Enterprise for more API keys.' : 'Please delete unused keys.'}`,
+        requiresUpgrade: user.plan === 'pro'
+      }, { status: 403 });
     }
-    
-    // Generate API key
-    const apiKey = APIKeyUtils.generateApiKey();
-    const hashedKey = APIKeyUtils.hashApiKey(apiKey);
-    const keyPreview = APIKeyUtils.generateKeyPreview(apiKey);
-    
-    // Set rate limits based on subscription
-    const defaultRateLimits = {
-      pro: { requests: 1000, window: 3600000 }, // 1000 per hour
-      enterprise: { requests: 10000, window: 3600000 } // 10000 per hour
-    };
-    
-    const rateLimitConfig = customRateLimit || defaultRateLimits[user.plan];
-    
-    // Create API key record
-    const apiKeyRecord = {
-      userId: user.userId.toString(),
+
+    // Generate new API key
+    const apiKey = generateApiKey();
+    const keyData = {
+      _id: new ObjectId(),
+      userId: user.userId,
       name: name.trim(),
-      hashedKey,
-      keyPreview,
-      isActive: true,
-      isDeleted: false,
-      rateLimit: rateLimitConfig,
-      usageCount: 0,
-      lastUsed: null,
+      key: apiKey,
       createdAt: new Date(),
-      updatedAt: new Date()
+      lastUsed: null,
+      isActive: true,
+      permissions: ['read', 'write'] // Default permissions
     };
-    
-    const result = await db.collection('api_keys').insertOne(apiKeyRecord);
-    
-    // Log API key creation
-    await db.collection('api_key_logs').insertOne({
-      userId: user.userId.toString(),
-      apiKeyId: result.insertedId,
-      action: 'created',
-      metadata: { name, rateLimit: rateLimitConfig },
-      createdAt: new Date()
-    });
-    
+
+    // Save to database
+    await db.collection('api_keys').insertOne(keyData);
+
     return NextResponse.json({
       success: true,
-      data: {
-        id: result.insertedId.toString(),
-        name,
-        apiKey, // Only returned once during creation
-        keyPreview,
-        rateLimit: rateLimitConfig,
-        createdAt: apiKeyRecord.createdAt
-      },
-      message: 'API key created successfully. Save it securely - it won\'t be shown again.'
+      message: 'API key created successfully',
+      apiKey: {
+        id: keyData._id,
+        name: keyData.name,
+        key: apiKey, // Only show full key once during creation
+        createdAt: keyData.createdAt
+      }
     });
-    
+
   } catch (error) {
     console.error('Error creating API key:', error);
-    throw error;
-  }
-}
-
-// Update API key
-async function updateApiKey(request: NextRequest): Promise<NextResponse> {
-  const user = await requirePremium(request);
-  if (user instanceof NextResponse) return user;
-  
-  const body = await request.json();
-  
-  // Validate request body
-  ValidationHelper.validateRequired(body.id, 'id');
-  ValidationHelper.validateObjectId(body.id, 'API key ID');
-  
-  const { id, name, isActive, rateLimit: newRateLimit } = body;
-  
-  try {
-    const { db } = await connectToDatabase();
-    
-    // Find API key
-    const apiKey = await db.collection('api_keys').findOne({
-      _id: id,
-      userId: user.userId.toString(),
-      isDeleted: { $ne: true }
-    });
-    
-    if (!apiKey) {
-      throw ErrorFactory.notFound('API key');
-    }
-    
-    // Prepare update data
-    const updateData: any = {
-      updatedAt: new Date()
-    };
-    
-    if (name !== undefined) {
-      ValidationHelper.validateLength(name, 1, 100, 'name');
-      updateData.name = name.trim();
-    }
-    
-    if (isActive !== undefined) {
-      updateData.isActive = Boolean(isActive);
-    }
-    
-    if (newRateLimit !== undefined) {
-      ValidationHelper.validatePositiveNumber(newRateLimit.requests, 'rate limit requests');
-      ValidationHelper.validatePositiveNumber(newRateLimit.window, 'rate limit window');
-      updateData.rateLimit = newRateLimit;
-    }
-    
-    // Update API key
-    await db.collection('api_keys').updateOne(
-      { _id: id },
-      { $set: updateData }
-    );
-    
-    // Log API key update
-    await db.collection('api_key_logs').insertOne({
-      userId: user.userId.toString(),
-      apiKeyId: id,
-      action: 'updated',
-      metadata: updateData,
-      createdAt: new Date()
-    });
-    
     return NextResponse.json({
-      success: true,
-      message: 'API key updated successfully'
-    });
-    
-  } catch (error) {
-    console.error('Error updating API key:', error);
-    throw error;
+      error: 'Internal server error',
+      message: 'Failed to create API key'
+    }, { status: 500 });
   }
 }
 
-// Delete API key
+// DELETE - Revoke API key (Premium feature)
 async function deleteApiKey(request: NextRequest): Promise<NextResponse> {
-  const user = await requirePremium(request);
-  if (user instanceof NextResponse) return user;
-  
-  const url = new URL(request.url);
-  const keyId = url.searchParams.get('id');
-  
-  if (!keyId) {
-    throw ErrorFactory.validation('API key ID is required');
+  // Authenticate user (premium feature)
+  const user = await authenticateUser(request);
+  if (!user) {
+    return NextResponse.json({
+      error: 'Authentication required',
+      message: 'Please log in to access this feature'
+    }, { status: 401 });
   }
-  
-  ValidationHelper.validateObjectId(keyId, 'API key ID');
-  
+
+  // Check if user has premium access
+  if (!hasProAccess(user)) {
+    return NextResponse.json({
+      error: 'Pro subscription required',
+      message: 'API keys are a premium feature. Please upgrade to Pro or Enterprise plan.',
+      requiresUpgrade: true,
+      currentPlan: user.plan
+    }, { status: 403 });
+  }
+
   try {
+    const { searchParams } = new URL(request.url);
+    const keyId = searchParams.get('id');
+
+    if (!keyId) {
+      return NextResponse.json({
+        error: 'Invalid input',
+        message: 'API key ID is required'
+      }, { status: 400 });
+    }
+
     const { db } = await connectToDatabase();
     
-    // Find API key
-    const apiKey = await db.collection('api_keys').findOne({
-  _id: new ObjectId(keyId),
-  userId: user.userId.toString(),
-  isDeleted: { $ne: true }
-});
-    
-    if (!apiKey) {
-      throw ErrorFactory.notFound('API key');
-    }
-    
-    // Soft delete API key
-    await db.collection('api_keys').updateOne(
-  { _id: new ObjectId(keyId) },
+    // Delete API key (only user's own keys)
+    const result = await db.collection('api_keys').updateOne(
+      { 
+        _id: new ObjectId(keyId),
+        userId: user.userId 
+      },
       { 
         $set: { 
-          isDeleted: true,
           isActive: false,
-          deletedAt: new Date(),
-          updatedAt: new Date()
+          revokedAt: new Date()
         }
       }
     );
-    
-    // Log API key deletion
-    await db.collection('api_key_logs').insertOne({
-      userId: user.userId,
-      apiKeyId: keyId,
-      action: 'deleted',
-      createdAt: new Date()
-    });
-    
+
+    if (result.matchedCount === 0) {
+      return NextResponse.json({
+        error: 'API key not found',
+        message: 'The specified API key was not found or does not belong to you'
+      }, { status: 404 });
+    }
+
     return NextResponse.json({
       success: true,
-      message: 'API key deleted successfully'
+      message: 'API key revoked successfully'
     });
-    
+
   } catch (error) {
     console.error('Error deleting API key:', error);
-    throw error;
-  }
-}
-
-// Get API key usage statistics
-async function getApiKeyUsage(request: NextRequest): Promise<NextResponse> {
-  const user = await requirePremium(request);
-  if (user instanceof NextResponse) return user;
-  
-  const url = new URL(request.url);
-  const keyId = url.searchParams.get('id');
-  const days = parseInt(url.searchParams.get('days') || '30');
-  
-  if (!keyId) {
-    throw ErrorFactory.validation('API key ID is required');
-  }
-  
-  ValidationHelper.validateObjectId(keyId, 'API key ID');
-  
-  try {
-    const { db } = await connectToDatabase();
-    
-    // Verify API key ownership
-    const apiKey = await db.collection('api_keys').findOne({
-    _id: new ObjectId(keyId),
-    userId: user.userId
-    });
-
-    
-    if (!apiKey) {
-      throw ErrorFactory.notFound('API key');
-    }
-    
-    // Get usage statistics
-    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-    
-    const usage = await db.collection('api_usage').aggregate([
-      {
-        $match: {
-          apiKeyId: keyId,
-          createdAt: { $gte: startDate }
-        }
-      },
-      {
-        $group: {
-          _id: {
-            date: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }
-          },
-          requests: { $sum: 1 },
-          successfulRequests: {
-            $sum: { $cond: [{ $eq: ['$success', true] }, 1, 0] }
-          },
-          failedRequests: {
-            $sum: { $cond: [{ $eq: ['$success', false] }, 1, 0] }
-          },
-          avgResponseTime: { $avg: '$responseTime' }
-        }
-      },
-      { $sort: { '_id.date': 1 } }
-    ]).toArray();
-    
     return NextResponse.json({
-      success: true,
-      data: {
-        apiKey: {
-          id: apiKey._id.toString(),
-          name: apiKey.name,
-          keyPreview: apiKey.keyPreview,
-          totalUsage: apiKey.usageCount || 0,
-          lastUsed: apiKey.lastUsed
-        },
-        usage,
-        period: {
-          days,
-          startDate,
-          endDate: new Date()
-        }
-      }
-    });
-    
-  } catch (error) {
-    console.error('Error fetching API key usage:', error);
-    throw error;
+      error: 'Internal server error',
+      message: 'Failed to revoke API key'
+    }, { status: 500 });
   }
 }
 
-// Main route handler
-async function handleApiKeyRequest(request: NextRequest): Promise<NextResponse> {
-  const method = request.method;
-  const url = new URL(request.url);
-  const action = url.searchParams.get('action');
-  
-  switch (method) {
-    case 'GET':
-      if (action === 'usage') {
-        return getApiKeyUsage(request);
-      } else {
-        return getUserApiKeys(request);
-      }
-      
-    case 'POST':
-      return createApiKey(request);
-      
-    case 'PUT':
-      return updateApiKey(request);
-      
-    case 'DELETE':
-      return deleteApiKey(request);
-      
-    default:
-      throw ErrorFactory.validation(`Method ${method} not allowed`);
-  }
-}
-
-// Export handlers with error handling
-export const GET = withErrorHandler(handleApiKeyRequest);
-export const POST = withErrorHandler(handleApiKeyRequest);
-export const PUT = withErrorHandler(handleApiKeyRequest);
-export const DELETE = withErrorHandler(handleApiKeyRequest);
+// Export handlers
+export const GET = withErrorHandler(getUserApiKeys);
+export const POST = withErrorHandler(createApiKey);
+export const DELETE = withErrorHandler(deleteApiKey);
