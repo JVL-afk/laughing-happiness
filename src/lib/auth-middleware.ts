@@ -35,36 +35,93 @@ function isValidJWT(token: string): any {
 
 export async function authenticateUser(request: NextRequest): Promise<AuthenticatedUser | null> {
   try {
+    console.log('🔍 AUTH DEBUG: Starting authentication...');
+    
     // Try Authorization header first
     let token = request.headers.get('authorization')?.replace('Bearer ', '');
+    console.log('🔍 AUTH DEBUG: Header token:', token ? 'Found' : 'Not found');
     
     // If no header token, try cookies (matches middleware)
     if (!token) {
-      token = request.cookies.get('auth-token')?.value ||
-              request.cookies.get('token')?.value ||
-              request.cookies.get('authToken')?.value ||
-              request.cookies.get('jwt')?.value;
+      const authTokenCookie = request.cookies.get('auth-token')?.value;
+      const tokenCookie = request.cookies.get('token')?.value;
+      const authTokenCookie2 = request.cookies.get('authToken')?.value;
+      const jwtCookie = request.cookies.get('jwt')?.value;
+      
+      console.log('🔍 AUTH DEBUG: Cookies check:', {
+        'auth-token': authTokenCookie ? 'Found' : 'Not found',
+        'token': tokenCookie ? 'Found' : 'Not found',
+        'authToken': authTokenCookie2 ? 'Found' : 'Not found',
+        'jwt': jwtCookie ? 'Found' : 'Not found'
+      });
+      
+      token = authTokenCookie || tokenCookie || authTokenCookie2 || jwtCookie;
     }
     
-    if (!token) return null;
+    if (!token) {
+      console.log('🔍 AUTH DEBUG: No token found anywhere');
+      return null;
+    }
+    
+    console.log('🔍 AUTH DEBUG: Token found, length:', token.length);
     
     // Use same JWT verification as middleware
     const decoded = isValidJWT(token);
+    console.log('🔍 AUTH DEBUG: JWT decoded:', decoded ? 'Success' : 'Failed');
+    
     if (!decoded) return null;
     
+    console.log('🔍 AUTH DEBUG: Decoded payload:', decoded);
+    
     const { db } = await connectToDatabase();
-    const user = await db.collection('users').findOne({ _id: decoded.userId });
-    if (!user) return null;
+    console.log('🔍 AUTH DEBUG: Database connected');
+    
+    // Try different user ID formats
+    let user = null;
+    
+    // Try as string first
+    user = await db.collection('users').findOne({ _id: decoded.userId });
+    console.log('🔍 AUTH DEBUG: User lookup (string):', user ? 'Found' : 'Not found');
+    
+    // Try as ObjectId if string failed
+    if (!user && decoded.userId) {
+      try {
+        const { ObjectId } = require('mongodb');
+        user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
+        console.log('🔍 AUTH DEBUG: User lookup (ObjectId):', user ? 'Found' : 'Not found');
+      } catch (e) {
+        console.log('🔍 AUTH DEBUG: ObjectId conversion failed');
+      }
+    }
+    
+    // Try email lookup if ID failed
+    if (!user && decoded.email) {
+      user = await db.collection('users').findOne({ email: decoded.email });
+      console.log('🔍 AUTH DEBUG: User lookup (email):', user ? 'Found' : 'Not found');
+    }
+    
+    if (!user) {
+      console.log('🔍 AUTH DEBUG: No user found in database');
+      return null;
+    }
+    
+    console.log('🔍 AUTH DEBUG: User found:', {
+      id: user._id,
+      email: user.email,
+      name: user.name || user.fullName,
+      plan: user.plan
+    });
     
     return {
       userId: user._id.toString(),
       email: user.email,
-      name: user.fullName,
+      name: user.fullName || user.name || 'User',
       plan: user.plan || 'basic',
       websitesCreated: user.websitesCreated || 0,
       websiteLimit: user.plan === 'pro' ? 10 : user.plan === 'enterprise' ? -1 : 3
     };
   } catch (error) {
+    console.error('🔍 AUTH DEBUG: Error:', error);
     return null;
   }
 }
