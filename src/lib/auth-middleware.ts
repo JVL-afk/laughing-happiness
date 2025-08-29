@@ -1,5 +1,5 @@
 // lib/auth-middleware.ts
-// COMPLETE AUTH MIDDLEWARE - Fixed to match main middleware JWT verification
+// ADAPTIVE AUTH MIDDLEWARE - Backward compatible with existing imports
 
 import jwt from 'jsonwebtoken';
 import { NextRequest } from 'next/server';
@@ -87,6 +87,9 @@ export async function authenticateUser(request: NextRequest): Promise<Authentica
   }
 }
 
+// BACKWARD COMPATIBILITY - Legacy function names
+export const authenticateRequest = authenticateUser;
+
 // Plan access control functions
 export function hasProAccess(user: AuthenticatedUser): boolean {
   return user.plan === 'pro' || user.plan === 'enterprise';
@@ -149,3 +152,6 @@ export function withEnterprise(handler: (request: NextRequest, user: Authenticat
   });
 }
 
+// BACKWARD COMPATIBILITY - Legacy function names for existing code
+export const requirePremium = withPro;
+export const requireEnterprise = withEnterprise;
