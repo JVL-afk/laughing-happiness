@@ -18,22 +18,13 @@ export async function GET(request: NextRequest) {
     const { db } = await connectToDatabase();
     
     // Get user's API keys
-    const apiKeys = await db.collection('api_keys').find({ 
-      userId: user.userId,
-      isActive: true 
-    }).sort({ createdAt: -1 }).toArray();
-    
-    // Connect to database
-    const { db } = await connectToDatabase();
-    
-    // Get user's API keys
-    const apiKeys = await db.collection('api_keys').find({ 
+    const userApiKeys = await db.collection('api_keys').find({ 
       userId: user.userId,
       isActive: true 
     }).sort({ createdAt: -1 }).toArray();
     
     // Remove sensitive key data from response
-    const safeApiKeys = apiKeys.map(key => ({
+    const safeApiKeys = userApiKeys.map(key => ({
       _id: key._id,
       name: key.name,
       keyPreview: `ak_${key.key.substring(0, 8)}...`,
@@ -86,6 +77,14 @@ export async function POST(request: NextRequest) {
     // Parse request body
     const body = await request.json();
     const { name, permissions, rateLimit, expiresIn } = body;
+    
+    // Validate required fields
+    if (!name) {
+      return NextResponse.json(
+        { error: 'API key name is required' },
+        { status: 400 }
+      );
+    }
     
     // Connect to database
     const { db } = await connectToDatabase();
@@ -202,6 +201,13 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const keyId = searchParams.get('keyId');
     
+    if (!keyId) {
+      return NextResponse.json(
+        { error: 'API key ID is required' },
+        { status: 400 }
+      );
+    }
+    
     // Connect to database
     const { db } = await connectToDatabase();
     
@@ -264,3 +270,4 @@ export async function DELETE(request: NextRequest) {
     );
   }
 }
+
