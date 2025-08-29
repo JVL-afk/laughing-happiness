@@ -1,20 +1,12 @@
 // src/app/api/auth/api-keys/route.ts
-// FIXED - No more TypeScript nightmares!
+// SIMPLIFIED - No more TypeScript judge arguments!
 
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from '../../../../lib/mongodb';
 import { withErrorHandler, ErrorFactory, ValidationHelper } from '../../../../lib/error-handler';
 import { authenticateUser, hasProAccess } from '../../../../lib/auth-middleware';
-import { rateLimit } from '../../../../lib/rate-limit';
 import { ObjectId } from 'mongodb';
 import crypto from 'crypto';
-
-// Rate limiting for API key operations
-const apiKeyRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // 10 requests per window
-  message: 'Too many API key requests, please try again later.'
-});
 
 // Generate secure API key
 function generateApiKey(): string {
@@ -74,10 +66,6 @@ async function getUserApiKeys(request: NextRequest): Promise<NextResponse> {
 
 // POST - Create new API key (Premium feature)
 async function createApiKey(request: NextRequest): Promise<NextResponse> {
-  // Apply rate limiting
-  const rateLimitResult = await apiKeyRateLimit(request);
-  if (rateLimitResult) return rateLimitResult;
-
   // Authenticate user (premium feature)
   const user = await authenticateUser(request);
   if (!user) {
