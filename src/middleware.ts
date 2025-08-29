@@ -17,12 +17,6 @@ const protectedRoutes = [
   '/dashboard/my-analyses'
 ];
 
-// Routes that should redirect to dashboard if already logged in
-const authRoutes = [
-  '/login',
-  '/signup'
-];
-
 // Simple JWT verification function
 function isValidJWT(token: string): boolean {
   try {
