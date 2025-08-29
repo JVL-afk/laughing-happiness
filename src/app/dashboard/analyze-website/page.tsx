@@ -124,8 +124,22 @@ export default function AnalyzeWebsite() {
 
       console.log('Sending analysis request:', requestData);
 
-      // Get auth token (optional for analysis)
-      const token = localStorage.getItem('authToken');
+      // Get auth token from cookies (matches middleware)
+      const token = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('auth-token='))
+        ?.split('=')[1] || 
+        document.cookie
+        .split('; ')
+        .find(row => row.startsWith('token='))
+        ?.split('=')[1] ||
+        document.cookie
+        .split('; ')
+        .find(row => row.startsWith('authToken='))
+        ?.split('=')[1] ||
+        localStorage.getItem('authToken') ||
+        localStorage.getItem('token');
+
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
@@ -133,7 +147,7 @@ export default function AnalyzeWebsite() {
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-
+      
       const response = await fetch('/api/ai/analyze-website', {
         method: 'POST',
         headers,
