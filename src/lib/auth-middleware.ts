@@ -1,5 +1,5 @@
 // lib/auth-middleware.ts
-// CREDIT-ECONOMY SOLUTION - Guaranteed to work, no more build errors!
+// FINAL SOLUTION - Type guards to eliminate TypeScript confusion
 
 import jwt from 'jsonwebtoken';
 import { NextRequest, NextResponse } from 'next/server';
@@ -14,7 +14,12 @@ export interface AuthenticatedUser {
   websiteLimit: number;
 }
 
-// Simple JWT verification function - MATCHES MAIN MIDDLEWARE
+// Type guard to check if result is a user
+export function isAuthenticatedUser(result: any): result is AuthenticatedUser {
+  return result && typeof result === 'object' && 'userId' in result;
+}
+
+// Simple JWT verification function
 function isValidJWT(token: string): any {
   try {
     const parts = token.split('.');
@@ -68,8 +73,8 @@ export function hasEnterpriseAccess(user: AuthenticatedUser): boolean {
   return user.plan === 'enterprise';
 }
 
-// CREDIT-ECONOMY SOLUTION - Simple, direct functions that match existing usage
-export async function requirePremium(request: NextRequest) {
+// EXPLICIT RETURN TYPE - This is what fixes the TypeScript error
+export async function requirePremium(request: NextRequest): Promise<AuthenticatedUser | NextResponse<any>> {
   const user = await authenticateUser(request);
   if (!user) {
     return NextResponse.json({
@@ -90,7 +95,7 @@ export async function requirePremium(request: NextRequest) {
   return user;
 }
 
-export async function requireEnterprise(request: NextRequest) {
+export async function requireEnterprise(request: NextRequest): Promise<AuthenticatedUser | NextResponse<any>> {
   const user = await authenticateUser(request);
   if (!user) {
     return NextResponse.json({
@@ -111,7 +116,7 @@ export async function requireEnterprise(request: NextRequest) {
   return user;
 }
 
-// Higher-order functions for new code
+// Higher-order functions
 export function withAuth(handler: (request: NextRequest, user: AuthenticatedUser) => Promise<Response>) {
   return async (request: NextRequest): Promise<Response> => {
     const user = await authenticateUser(request);
@@ -152,4 +157,3 @@ export function withEnterprise(handler: (request: NextRequest, user: Authenticat
     return handler(request, user);
   });
 }
-
