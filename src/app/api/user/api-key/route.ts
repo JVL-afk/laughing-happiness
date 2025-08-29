@@ -9,6 +9,20 @@ export async function GET(request: NextRequest) {
     // Require Enterprise plan for API access
     const user = await requireEnterprise(request);
     
+    // Check if user is authenticated (not a NextResponse error)
+    if (user instanceof NextResponse) {
+      return user;
+    }
+    
+    // Connect to database
+    const { db } = await connectToDatabase();
+    
+    // Get user's API keys
+    const apiKeys = await db.collection('api_keys').find({ 
+      userId: user.userId,
+      isActive: true 
+    }).sort({ createdAt: -1 }).toArray();
+    
     // Connect to database
     const { db } = await connectToDatabase();
     
@@ -64,17 +78,14 @@ export async function POST(request: NextRequest) {
     // Require Enterprise plan for API access
     const user = await requireEnterprise(request);
     
+    // Check if user is authenticated (not a NextResponse error)
+    if (user instanceof NextResponse) {
+      return user;
+    }
+    
     // Parse request body
     const body = await request.json();
     const { name, permissions, rateLimit, expiresIn } = body;
-    
-    // Validate required fields
-    if (!name) {
-      return NextResponse.json(
-        { error: 'API key name is required' },
-        { status: 400 }
-      );
-    }
     
     // Connect to database
     const { db } = await connectToDatabase();
@@ -182,16 +193,14 @@ export async function DELETE(request: NextRequest) {
     // Require Enterprise plan for API access
     const user = await requireEnterprise(request);
     
+    // Check if user is authenticated (not a NextResponse error)
+    if (user instanceof NextResponse) {
+      return user;
+    }
+    
     // Get API key ID from query params
     const { searchParams } = new URL(request.url);
     const keyId = searchParams.get('keyId');
-    
-    if (!keyId) {
-      return NextResponse.json(
-        { error: 'API key ID is required' },
-        { status: 400 }
-      );
-    }
     
     // Connect to database
     const { db } = await connectToDatabase();
