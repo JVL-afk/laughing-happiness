@@ -1,8 +1,8 @@
 // lib/auth-middleware.ts
-// ADAPTIVE AUTH MIDDLEWARE - Backward compatible with existing imports
+// FULLY ADAPTIVE - Matches existing code patterns exactly
 
 import jwt from 'jsonwebtoken';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from './mongodb';
 
 export interface AuthenticatedUser {
@@ -99,7 +99,50 @@ export function hasEnterpriseAccess(user: AuthenticatedUser): boolean {
   return user.plan === 'enterprise';
 }
 
-// Higher-order function for protected routes
+// ADAPTIVE FUNCTIONS - Match existing code patterns exactly
+export async function requirePremium(request: NextRequest): Promise<AuthenticatedUser | NextResponse> {
+  const user = await authenticateUser(request);
+  if (!user) {
+    return NextResponse.json({
+      error: 'Authentication required',
+      message: 'Please log in to access this feature'
+    }, { status: 401 });
+  }
+  
+  if (!hasProAccess(user)) {
+    return NextResponse.json({
+      error: 'Pro subscription required',
+      message: 'This feature requires a Pro or Enterprise plan',
+      requiresUpgrade: true,
+      currentPlan: user.plan
+    }, { status: 403 });
+  }
+  
+  return user;
+}
+
+export async function requireEnterprise(request: NextRequest): Promise<AuthenticatedUser | NextResponse> {
+  const user = await authenticateUser(request);
+  if (!user) {
+    return NextResponse.json({
+      error: 'Authentication required',
+      message: 'Please log in to access this feature'
+    }, { status: 401 });
+  }
+  
+  if (!hasEnterpriseAccess(user)) {
+    return NextResponse.json({
+      error: 'Enterprise subscription required',
+      message: 'This feature requires an Enterprise plan',
+      requiresUpgrade: true,
+      currentPlan: user.plan
+    }, { status: 403 });
+  }
+  
+  return user;
+}
+
+// Higher-order function for protected routes (new style)
 export function withAuth(handler: (request: NextRequest, user: AuthenticatedUser) => Promise<Response>) {
   return async (request: NextRequest): Promise<Response> => {
     const user = await authenticateUser(request);
@@ -116,7 +159,7 @@ export function withAuth(handler: (request: NextRequest, user: AuthenticatedUser
   };
 }
 
-// Higher-order function for pro features
+// Higher-order function for pro features (new style)
 export function withPro(handler: (request: NextRequest, user: AuthenticatedUser) => Promise<Response>) {
   return withAuth(async (request: NextRequest, user: AuthenticatedUser): Promise<Response> => {
     if (!hasProAccess(user)) {
@@ -134,7 +177,7 @@ export function withPro(handler: (request: NextRequest, user: AuthenticatedUser)
   });
 }
 
-// Higher-order function for enterprise features
+// Higher-order function for enterprise features (new style)
 export function withEnterprise(handler: (request: NextRequest, user: AuthenticatedUser) => Promise<Response>) {
   return withAuth(async (request: NextRequest, user: AuthenticatedUser): Promise<Response> => {
     if (!hasEnterpriseAccess(user)) {
@@ -151,7 +194,3 @@ export function withEnterprise(handler: (request: NextRequest, user: Authenticat
     return handler(request, user);
   });
 }
-
-// BACKWARD COMPATIBILITY - Legacy function names for existing code
-export const requirePremium = withPro;
-export const requireEnterprise = withEnterprise;
