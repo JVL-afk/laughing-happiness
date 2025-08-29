@@ -35,18 +35,25 @@ function isValidJWT(token: string): any {
 
 export async function authenticateUser(request: NextRequest): Promise<AuthenticatedUser | null> {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+    // Try Authorization header first
+    let token = request.headers.get('authorization')?.replace('Bearer ', '');
     
-    const token = authHeader.substring(7);
+    // If no header token, try cookies (matches middleware)
+    if (!token) {
+      token = request.cookies.get('auth-token')?.value ||
+              request.cookies.get('token')?.value ||
+              request.cookies.get('authToken')?.value ||
+              request.cookies.get('jwt')?.value;
+    }
+    
     if (!token) return null;
     
+    // Use same JWT verification as middleware
     const decoded = isValidJWT(token);
     if (!decoded) return null;
     
     const { db } = await connectToDatabase();
-    const users = db.collection('users');
-    const user = await users.findOne({ _id: decoded.userId });
+    const user = await db.collection('users').findOne({ _id: decoded.userId });
     if (!user) return null;
     
     return {
