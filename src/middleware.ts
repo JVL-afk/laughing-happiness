@@ -92,14 +92,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Handle auth routes (login, signup)
-  if (authRoutes.includes(pathname)) {
-    if (isAuthenticated) {
-      // Already logged in, redirect to dashboard
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
-
-    // Not logged in, allow access to auth pages
+  // Handle auth routes (login, signup) - no redirect needed
+  if (pathname === '/login' || pathname === '/signup') {
+    // Allow access to login/signup regardless of auth status
     return NextResponse.next();
   }
 
