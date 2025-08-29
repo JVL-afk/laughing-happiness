@@ -62,24 +62,24 @@ export async function authenticateUser(request: NextRequest): Promise<Authentica
       return null;
     }
 
-    // Get user from database
+    // Connect to database
     const { db } = await connectToDatabase();
-    const user = await db.collection('users').findOne({
-      _id: decoded.userId
-    });
+    const users = db.collection('users');
 
+    // Find user in database
+    const user = await users.findOne({ _id: decoded.userId });
     if (!user) {
       return null;
     }
 
-    // Return authenticated user data
+    // Return authenticated user with plan information
     return {
       userId: user._id.toString(),
       email: user.email,
-      name: user.fullName || user.name,
+      name: user.fullName,
       plan: user.plan || 'basic',
       websitesCreated: user.websitesCreated || 0,
-      websiteLimit: user.websiteLimit || 3
+      websiteLimit: user.plan === 'pro' ? 10 : user.plan === 'enterprise' ? -1 : 3
     };
   } catch (error) {
     console.error('Authentication error:', error);
@@ -87,64 +87,24 @@ export async function authenticateUser(request: NextRequest): Promise<Authentica
   }
 }
 
-// ALIAS for backward compatibility
-export const authenticateRequest = authenticateUser;
-
-export function createAuthResponse(message: string, status: number = 401) {
-  return {
-    error: 'Authentication failed',
-    message,
-    requiresAuth: true
-  };
-}
-
-export function requirePremium(user: AuthenticatedUser): boolean {
+// Plan access control functions
+export function hasProAccess(user: AuthenticatedUser): boolean {
   return user.plan === 'pro' || user.plan === 'enterprise';
 }
 
-export function requireEnterprise(user: AuthenticatedUser): boolean {
+export function hasEnterpriseAccess(user: AuthenticatedUser): boolean {
   return user.plan === 'enterprise';
 }
 
-export function hasPremiumAccess(user: AuthenticatedUser): boolean {
-  return requirePremium(user);
-}
-
-export function hasEnterpriseAccess(user: AuthenticatedUser): boolean {
-  return requireEnterprise(user);
-}
-
-export function getPlanLimits(plan: string) {
-  switch (plan) {
-    case 'basic':
-      return {
-        websites: 3,
-        analyses: 10,
-        features: ['basic_templates', 'basic_analytics']
-      };
-    case 'pro':
-      return {
-        websites: 25,
-        analyses: 100,
-        features: ['premium_templates', 'advanced_analytics', 'ai_chatbot', 'custom_domains', 'ab_testing']
-      };
-    case 'enterprise':
-      return {
-        websites: -1, // unlimited
-        analyses: -1, // unlimited
-        features: ['all_features', 'team_collaboration', 'white_label', 'api_access', 'dedicated_support']
-      };
-    default:
-      return getPlanLimits('basic');
-  }
-}
-
-// Higher-order function for authentication
+// Higher-order function for protected routes
 export function withAuth(handler: (request: NextRequest, user: AuthenticatedUser) => Promise<Response>) {
   return async (request: NextRequest): Promise<Response> => {
     const user = await authenticateUser(request);
     if (!user) {
-      return new Response(JSON.stringify(createAuthResponse('Authentication required')), {
+      return new Response(JSON.stringify({
+        error: 'Authentication required',
+        message: 'Please log in to access this feature'
+      }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' }
       });
@@ -153,12 +113,12 @@ export function withAuth(handler: (request: NextRequest, user: AuthenticatedUser
   };
 }
 
-// Higher-order function for premium features
-export function withPremium(handler: (request: NextRequest, user: AuthenticatedUser) => Promise<Response>) {
+// Higher-order function for pro features
+export function withPro(handler: (request: NextRequest, user: AuthenticatedUser) => Promise<Response>) {
   return withAuth(async (request: NextRequest, user: AuthenticatedUser): Promise<Response> => {
-    if (!hasPremiumAccess(user)) {
+    if (!hasProAccess(user)) {
       return new Response(JSON.stringify({
-        error: 'Premium subscription required',
+        error: 'Pro subscription required',
         message: 'This feature requires a Pro or Enterprise plan',
         requiresUpgrade: true,
         currentPlan: user.plan
