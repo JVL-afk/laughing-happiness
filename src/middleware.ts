@@ -6,7 +6,6 @@ import type { NextRequest } from 'next/server';
 
 // Only protect these specific routes that require authentication
 const protectedRoutes = [
-  '/dashboard/create-website',
   '/dashboard/analyze-website',
   '/dashboard/my-websites',
   '/dashboard/analytics',
