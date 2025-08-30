@@ -55,31 +55,49 @@ export default function CreateWebsite() {
   }, []);
 
   const loadUserData = async () => {
-    try {
-      const token = localStorage.getItem('authToken');
-      if (!token) {
-        router.push('/login');
-        return;
-      }
+  try {
+    // Try multiple token sources
+    const token = localStorage.getItem('authToken') || 
+                  localStorage.getItem('token') ||
+                  document.cookie
+                    .split('; ')
+                    .find(row => row.startsWith('auth-token='))
+                    ?.split('=')[1] ||
+                  document.cookie
+                    .split('; ')
+                    .find(row => row.startsWith('token='))
+                    ?.split('=')[1];
+    
+    if (!token) {
+      console.log('No token found, redirecting to login');
+      router.push('/login');
+      return;
+    }
 
-      const response = await fetch('/api/auth/me', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+    console.log('Token found, fetching user data...');
 
-      if (response.ok) {
-        const userData = await response.json();
-        setUser(userData.user);
-      } else {
-        router.push('/login');
-      }
-    } catch (error) {
-      console.error('Error loading user data:', error);
+    const response = await fetch('/api/auth/me', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    console.log('User data response status:', response.status);
+
+    if (response.ok) {
+      const userData = await response.json();
+      console.log('User data received:', userData);
+      setUser(userData.user);
+    } else {
+      console.log('Failed to get user data, redirecting to login');
       router.push('/login');
     }
-  };
+  } catch (error) {
+    console.error('Error loading user data:', error);
+    router.push('/login');
+  }
+};
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
