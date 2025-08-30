@@ -1,223 +1,189 @@
 // lib/auth-middleware.ts
-// FINAL SOLUTION - Type guards to eliminate TypeScript confusion
+// OBJECTID-BASED AUTHENTICATION - Simple, Reliable, Direct Database Access
 
-import jwt from 'jsonwebtoken';
 import { NextRequest, NextResponse } from 'next/server';
 import { connectToDatabase } from './mongodb';
+import { ObjectId } from 'mongodb';
 
 export interface AuthenticatedUser {
-  userId: string;
-  email: string;
-  name: string;
-  plan: string;
-  websitesCreated: number;
-  websiteLimit: number;
+    userId: string;
+    email: string;
+    name: string;
+    plan: string;
+    websitesCreated: number;
+    websiteLimit: number;
+    lastLogin: Date;
 }
 
-// Type guard to check if result is a user
-export function isAuthenticatedUser(result: any): result is AuthenticatedUser {
-  return result && typeof result === 'object' && 'userId' in result;
-}
-
-// Simple JWT verification function
-function isValidJWT(token: string): any {
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-    if (!payload.userId || !payload.email) return null;
-    if (payload.exp && payload.exp < Date.now() / 1000) return null;
-    return payload;
-  } catch (error) {
-    return null;
-  }
-}
-
+// Simple ObjectID-based authentication
 export async function authenticateUser(request: NextRequest): Promise<AuthenticatedUser | null> {
-  try {
-    console.log('🔍 AUTH DEBUG: Starting authentication...');
-    
-    // Try Authorization header first
-    let token = request.headers.get('authorization')?.replace('Bearer ', '');
-    console.log('🔍 AUTH DEBUG: Header token:', token ? 'Found' : 'Not found');
-    
-    // If no header token, try cookies (matches middleware)
-    if (!token) {
-      const authTokenCookie = request.cookies.get('auth-token')?.value;
-      const tokenCookie = request.cookies.get('token')?.value;
-      const authTokenCookie2 = request.cookies.get('authToken')?.value;
-      const jwtCookie = request.cookies.get('jwt')?.value;
-      
-      console.log('🔍 AUTH DEBUG: Cookies check:', {
-        'auth-token': authTokenCookie ? 'Found' : 'Not found',
-        'token': tokenCookie ? 'Found' : 'Not found',
-        'authToken': authTokenCookie2 ? 'Found' : 'Not found',
-        'jwt': jwtCookie ? 'Found' : 'Not found'
-      });
-      
-      token = authTokenCookie || tokenCookie || authTokenCookie2 || jwtCookie;
-    }
-    
-    if (!token) {
-      console.log('🔍 AUTH DEBUG: No token found anywhere');
-      return null;
-    }
-    
-    console.log('🔍 AUTH DEBUG: Token found, length:', token.length);
-    
-    // Use same JWT verification as middleware
-    const decoded = isValidJWT(token);
-    console.log('🔍 AUTH DEBUG: JWT decoded:', decoded ? 'Success' : 'Failed');
-    
-    if (!decoded) return null;
-    
-    console.log('🔍 AUTH DEBUG: Decoded payload:', decoded);
-    
-    const { db } = await connectToDatabase();
-    console.log('🔍 AUTH DEBUG: Database connected');
-    
-    // Try different user ID formats
-    let user = null;
-    
-    // Try as string first
-    user = await db.collection('users').findOne({ _id: decoded.userId });
-    console.log('🔍 AUTH DEBUG: User lookup (string):', user ? 'Found' : 'Not found');
-    
-    // Try as ObjectId if string failed
-    if (!user && decoded.userId) {
-      try {
-        const { ObjectId } = require('mongodb');
-        user = await db.collection('users').findOne({ _id: new ObjectId(decoded.userId) });
-        console.log('🔍 AUTH DEBUG: User lookup (ObjectId):', user ? 'Found' : 'Not found');
-      } catch (e) {
-        console.log('🔍 AUTH DEBUG: ObjectId conversion failed');
+    try {
+          console.log('🔍 AUTH DEBUG: Starting ObjectID authentication...');
+
+      // Get ObjectID from multiple sources
+      let userObjectId = null;
+
+      // 1. Try Authorization header (Bearer ObjectID)
+      const authHeader = request.headers.get('authorization');
+          if (authHeader && authHeader.startsWith('Bearer ')) {
+                  userObjectId = authHeader.substring(7);
+                  console.log('🔍 AUTH DEBUG: ObjectID from header:', userObjectId ? 'Found' : 'Not found');
+          }
+
+      // 2. Try cookies if no header
+      if (!userObjectId) {
+              userObjectId = request.cookies.get('user-id')?.value ||
+                                    request.cookies.get('userId')?.value ||
+                                    request.cookies.get('objectId')?.value ||
+                                    request.cookies.get('auth-id')?.value;
+              console.log('🔍 AUTH DEBUG: ObjectID from cookies:', userObjectId ? 'Found' : 'Not found');
       }
+
+      if (!userObjectId) {
+              console.log('🔍 AUTH DEBUG: No ObjectID found anywhere');
+              return null;
+      }
+
+      console.log('🔍 AUTH DEBUG: ObjectID found, length:', userObjectId.length);
+
+      // Validate ObjectID format
+      if (!ObjectId.isValid(userObjectId)) {
+              console.log('🔍 AUTH DEBUG: Invalid ObjectID format');
+              return null;
+      }
+
+      // Connect to database
+      const { db } = await connectToDatabase();
+          console.log('🔍 AUTH DEBUG: Database connected');
+
+      // Direct database lookup with ObjectID
+      const user = await db.collection('users').findOne({ 
+                                                              _id: new ObjectId(userObjectId) 
+      });
+
+      console.log('🔍 AUTH DEBUG: User lookup result:', user ? 'Found' : 'Not found');
+
+      if (!user) {
+              console.log('🔍 AUTH DEBUG: No user found with ObjectID');
+              return null;
+      }
+
+      // Update last login
+      await db.collection('users').updateOne(
+        { _id: new ObjectId(userObjectId) },
+        { $set: { lastLogin: new Date() } }
+            );
+
+      console.log('🔍 AUTH DEBUG: User authenticated successfully:', {
+              id: user._id,
+              email: user.email,
+              name: user.fullName || user.name,
+              plan: user.plan || 'basic'
+      });
+
+      // Return authenticated user data
+      return {
+              userId: user._id.toString(),
+              email: user.email,
+              name: user.fullName || user.name || 'User',
+              plan: user.plan || 'basic',
+              websitesCreated: user.websitesCreated || 0,
+              websiteLimit: getWebsiteLimit(user.plan || 'basic'),
+              lastLogin: new Date()
+      };
+
+    } catch (error) {
+          console.error('🔍 AUTH DEBUG: Authentication error:', error);
+          return null;
     }
-    
-    // Try email lookup if ID failed
-    if (!user && decoded.email) {
-      user = await db.collection('users').findOne({ email: decoded.email });
-      console.log('🔍 AUTH DEBUG: User lookup (email):', user ? 'Found' : 'Not found');
-    }
-    
-    if (!user) {
-      console.log('🔍 AUTH DEBUG: No user found in database');
-      return null;
-    }
-    
-    console.log('🔍 AUTH DEBUG: User found:', {
-      id: user._id,
-      email: user.email,
-      name: user.name || user.fullName,
-      plan: user.plan
-    });
-    
-    return {
-      userId: user._id.toString(),
-      email: user.email,
-      name: user.fullName || user.name || 'User',
-      plan: user.plan || 'basic',
-      websitesCreated: user.websitesCreated || 0,
-      websiteLimit: user.plan === 'pro' ? 10 : user.plan === 'enterprise' ? -1 : 3
-    };
-  } catch (error) {
-    console.error('🔍 AUTH DEBUG: Error:', error);
-    return null;
-  }
 }
 
-// BACKWARD COMPATIBILITY
-export const authenticateRequest = authenticateUser;
+// Get website limits based on plan
+function getWebsiteLimit(plan: string): number {
+    switch (plan) {
+      case 'basic': return 3;
+      case 'pro': return 25;
+      case 'enterprise': return -1; // unlimited
+      default: return 3;
+    }
+}
 
+// Plan access control functions
 export function hasProAccess(user: AuthenticatedUser): boolean {
-  return user.plan === 'pro' || user.plan === 'enterprise';
+    return user.plan === 'pro' || user.plan === 'enterprise';
 }
 
 export function hasEnterpriseAccess(user: AuthenticatedUser): boolean {
-  return user.plan === 'enterprise';
+    return user.plan === 'enterprise';
 }
 
-// EXPLICIT RETURN TYPE - This is what fixes the TypeScript error
+// Check if user can create more websites
+export function canCreateWebsite(user: AuthenticatedUser): boolean {
+    if (user.websiteLimit === -1) return true; // unlimited
+  return user.websitesCreated < user.websiteLimit;
+}
+
+// BACKWARD COMPATIBILITY - Legacy function names
+export const authenticateRequest = authenticateUser;
+
+// Premium access functions with proper return types
 export async function requirePremium(request: NextRequest): Promise<AuthenticatedUser | NextResponse<any>> {
-  const user = await authenticateUser(request);
-  if (!user) {
-    return NextResponse.json({
-      error: 'Authentication required',
-      message: 'Please log in to access this feature'
-    }, { status: 401 });
-  }
-  
+    const user = await authenticateUser(request);
+    if (!user) {
+          return NextResponse.json({
+                  error: 'Authentication required',
+                  message: 'Please log in to access this feature'
+          }, { status: 401 });
+    }
+
   if (!hasProAccess(user)) {
-    return NextResponse.json({
-      error: 'Pro subscription required',
-      message: 'This feature requires a Pro or Enterprise plan',
-      requiresUpgrade: true,
-      currentPlan: user.plan
-    }, { status: 403 });
+        return NextResponse.json({
+                error: 'Pro subscription required',
+                message: 'This feature requires a Pro or Enterprise plan',
+                requiresUpgrade: true,
+                currentPlan: user.plan,
+                upgradeUrl: '/pricing'
+        }, { status: 403 });
   }
-  
+
   return user;
 }
 
 export async function requireEnterprise(request: NextRequest): Promise<AuthenticatedUser | NextResponse<any>> {
-  const user = await authenticateUser(request);
-  if (!user) {
-    return NextResponse.json({
-      error: 'Authentication required',
-      message: 'Please log in to access this feature'
-    }, { status: 401 });
-  }
-  
+    const user = await authenticateUser(request);
+    if (!user) {
+          return NextResponse.json({
+                  error: 'Authentication required',
+                  message: 'Please log in to access this feature'
+          }, { status: 401 });
+    }
+
   if (!hasEnterpriseAccess(user)) {
-    return NextResponse.json({
-      error: 'Enterprise subscription required',
-      message: 'This feature requires an Enterprise plan',
-      requiresUpgrade: true,
-      currentPlan: user.plan
-    }, { status: 403 });
+        return NextResponse.json({
+                error: 'Enterprise subscription required',
+                message: 'This feature requires an Enterprise plan',
+                requiresUpgrade: true,
+                currentPlan: user.plan,
+                upgradeUrl: '/pricing'
+        }, { status: 403 });
   }
-  
+
   return user;
 }
 
-// Higher-order functions
+// Higher-order function for basic authentication
 export function withAuth(handler: (request: NextRequest, user: AuthenticatedUser) => Promise<Response>) {
-  return async (request: NextRequest): Promise<Response> => {
-    const user = await authenticateUser(request);
-    if (!user) {
-      return NextResponse.json({
-        error: 'Authentication required',
-        message: 'Please log in to access this feature'
-      }, { status: 401 });
-    }
-    return handler(request, user);
-  };
+    return async (request: NextRequest): Promise<Response> => {
+          const user = await authenticateUser(request);
+          if (!user) {
+                  return NextResponse.json({
+                            error: 'Authentication required',
+                            message: 'Please log in to access this feature'
+                  }, { status: 401 });
+          }
+          return handler(request, user);
+    };
 }
 
-export function withPro(handler: (request: NextRequest, user: AuthenticatedUser) => Promise<Response>) {
-  return withAuth(async (request: NextRequest, user: AuthenticatedUser): Promise<Response> => {
-    if (!hasProAccess(user)) {
-      return NextResponse.json({
-        error: 'Pro subscription required',
-        message: 'This feature requires a Pro or Enterprise plan',
-        requiresUpgrade: true,
-        currentPlan: user.plan
-      }, { status: 403 });
-    }
-    return handler(request, user);
-  });
-}
-
-export function withEnterprise(handler: (request: NextRequest, user: AuthenticatedUser) => Promise<Response>) {
-  return withAuth(async (request: NextRequest, user: AuthenticatedUser): Promise<Response> => {
-    if (!hasEnterpriseAccess(user)) {
-      return NextResponse.json({
-        error: 'Enterprise subscription required',
-        message: 'This feature requires an Enterprise plan',
-        requiresUpgrade: true,
-        currentPlan: user.plan
-      }, { status: 403 });
-    }
-    return handler(request, user);
-  });
-}
+// Higher-order function for pro features
+export function withPro(handler: (request: NextRequest, user: Authenti
