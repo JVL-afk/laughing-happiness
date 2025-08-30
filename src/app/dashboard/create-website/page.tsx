@@ -1,32 +1,37 @@
-// src/app/dashboard/create-website/page.tsx
-// OBJECTID-BASED CREATE-WEBSITE PAGE - Frontend ObjectID Authentication
+// app/dashboard/create-website/page.tsx
+// RESTORED OLD DESIGN + OBJECTID AUTHENTICATION - Perfect combination!
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  plan: string;
+  websitesCreated: number;
+  websiteLimit: number;
+}
 
 interface WebsiteData {
   id: string;
   title: string;
+  headline: string;
   description: string;
-  content: {
-    hero: {
-      headline: string;
-      subheadline: string;
-      ctaText: string;
-    };
-    features: string[];
-    testimonials: Array<{
-      name: string;
-      text: string;
-      rating: number;
-    }>;
-  };
+  html: string;
+  css: string;
+  features: string[];
+  cta: string;
+  seoKeywords: string[];
+  productUrl: string;
+  createdAt: string;
 }
 
-export default function CreateWebsitePage() {
+export default function CreateWebsite() {
   const router = useRouter();
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -44,9 +49,60 @@ export default function CreateWebsitePage() {
     }
   });
 
+  // Load user data on component mount with ObjectID
+  useEffect(() => {
+    loadUserData();
+  }, []);
+
+  const loadUserData = async () => {
+    try {
+      // Get ObjectID for authentication (NEW OBJECTID SYSTEM)
+      let userObjectId = localStorage.getItem('userObjectId') || 
+                         localStorage.getItem('userId') ||
+                         localStorage.getItem('objectId');
+      
+      // Try cookies if no localStorage ObjectID
+      if (!userObjectId) {
+        userObjectId = document.cookie
+          .split('; ')
+          .find(row => row.startsWith('user-id='))
+          ?.split('=')[1] ||
+        document.cookie
+          .split('; ')
+          .find(row => row.startsWith('auth-id='))
+          ?.split('=')[1] ||
+        document.cookie
+          .split('; ')
+          .find(row => row.startsWith('userId='))
+          ?.split('=')[1];
+      }
+
+      if (!userObjectId) {
+        router.push('/login');
+        return;
+      }
+
+      // Mock user data based on ObjectID (replace with actual API call if needed)
+      const userData = {
+        id: userObjectId,
+        name: 'User',
+        email: 'user@example.com',
+        plan: 'pro', // Pro plan for testing
+        websitesCreated: 1, // From the success message we saw
+        websiteLimit: 25 // Pro plan limit
+      };
+      
+      setUser(userData);
+
+    } catch (error) {
+      console.error('Error loading user data:', error);
+      router.push('/login');
+    }
+  };
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    
+
     if (name.startsWith('customization.')) {
       const customizationField = name.split('.')[1];
       setFormData(prev => ({
@@ -78,12 +134,18 @@ export default function CreateWebsitePage() {
       return false;
     }
 
+    // Check if user has reached limit
+    if (user && user.websitesCreated >= user.websiteLimit) {
+      setError(`You have reached your limit of ${user.websiteLimit} websites. Please upgrade your plan.`);
+      return false;
+    }
+
     return true;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
@@ -93,7 +155,7 @@ export default function CreateWebsitePage() {
     setSuccess('');
 
     try {
-      // Get ObjectID for authentication (required for website creation)
+      // Get ObjectID for authentication (NEW OBJECTID SYSTEM)
       let userObjectId = localStorage.getItem('userObjectId') || 
                          localStorage.getItem('userId') ||
                          localStorage.getItem('objectId');
@@ -120,8 +182,6 @@ export default function CreateWebsitePage() {
         return;
       }
 
-      console.log('🔍 CREATE: Using ObjectID for authentication:', userObjectId.substring(0, 8) + '...');
-
       // Prepare request data
       const requestData = {
         productUrl: formData.productUrl.trim(),
@@ -130,235 +190,364 @@ export default function CreateWebsitePage() {
         customization: formData.customization
       };
 
-      console.log('🔍 CREATE: Sending request:', requestData);
+      console.log('Sending request:', requestData);
 
       const response = await fetch('/api/ai/generate-website', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${userObjectId}`,
+          'Authorization': `Bearer ${userObjectId}`, // ObjectID instead of JWT
         },
         body: JSON.stringify(requestData),
       });
 
       const data = await response.json();
+      console.log('Response:', data);
 
-      if (!response.ok) {
-        if (response.status === 401) {
-          setError('Authentication required. Please log in again.');
-          setTimeout(() => router.push('/login'), 2000);
-          return;
+      if (response.ok) {
+        setSuccess('Website generated successfully! 🎉');
+        setGeneratedWebsite(data.website);
+
+        // Update user stats
+        if (data.userStats) {
+          setUser(prev => prev ? {
+            ...prev,
+            websitesCreated: data.userStats.websitesCreated
+          } : null);
         }
-        
-        if (response.status === 403) {
-          setError(data.message || 'Website limit reached. Please upgrade your plan.');
-          return;
+
+        // Reset form
+        setFormData({
+          productUrl: '',
+          niche: '',
+          targetAudience: '',
+          customization: {
+            colorScheme: 'modern',
+            style: 'professional',
+            tone: 'persuasive'
+          }
+        });
+
+      } else {
+        setError(data.message || data.error || 'Failed to generate website');
+
+        if (data.upgradeRequired || data.requiresUpgrade) {
+          // Show upgrade prompt
+          setTimeout(() => {
+            router.push('/pricing');
+          }, 3000);
         }
-        
-        throw new Error(data.error || data.message || 'Failed to generate website');
-      }
-
-      console.log('🔍 CREATE: Website generated successfully');
-      setGeneratedWebsite(data.website);
-      setSuccess(data.message || 'Website generated successfully!');
-
-      // Store ObjectID in localStorage for future requests
-      if (data.website?.createdBy) {
-        localStorage.setItem('userObjectId', userObjectId);
       }
 
     } catch (error) {
-      console.error('🔍 CREATE ERROR:', error);
-      setError(error instanceof Error ? error.message : 'Failed to generate website');
+      console.error('Error generating website:', error);
+      setError('Network error. Please check your connection and try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  const previewWebsite = () => {
+    if (!generatedWebsite) return;
+
+    // Create a new window with the generated website
+    const previewWindow = window.open('', '_blank');
+    if (previewWindow) {
+      previewWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>${generatedWebsite.title}</title>
+          <meta name="description" content="${generatedWebsite.description}">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>${generatedWebsite.css}</style>
+        </head>
+        <body>
+          ${generatedWebsite.html}
+        </body>
+        </html>
+      `);
+      previewWindow.document.close();
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4">
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl">
-          <h1 className="text-4xl font-bold text-white mb-2">Create Affiliate Website</h1>
-          <p className="text-white/80 mb-8">
-            Generate a professional affiliate marketing website powered by AI in minutes.
+    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
+      <div className="container mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-white mb-4">
+            🚀 Create New Website
+          </h1>
+          <p className="text-xl text-gray-300">
+            Transform any affiliate link into a high-converting website with AI
           </p>
+        </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+        {/* User Stats */}
+        <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 mb-8 border border-white/20">
+          <div className="flex items-center justify-between">
             <div>
-              <label htmlFor="productUrl" className="block text-white font-medium mb-2">
-                Product/Affiliate URL *
-              </label>
-              <input
-                type="url"
-                id="productUrl"
-                name="productUrl"
-                value={formData.productUrl}
-                onChange={handleInputChange}
-                placeholder="https://example.com/product"
-                className="w-full px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                disabled={loading}
-                required
-              />
+              <h3 className="text-lg font-semibold text-white">Plan: {user.plan}</h3>
+              <p className="text-gray-300">
+                Websites: {user.websitesCreated}/{user.websiteLimit}
+              </p>
             </div>
-
-            <div>
-              <label htmlFor="niche" className="block text-white font-medium mb-2">
-                Niche/Category (Optional)
-              </label>
-              <input
-                type="text"
-                id="niche"
-                name="niche"
-                value={formData.niche}
-                onChange={handleInputChange}
-                placeholder="e.g., Fitness, Technology, Fashion"
-                className="w-full px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                disabled={loading}
-              />
+            <div className="text-right">
+              <div className="text-2xl font-bold text-green-400">
+                {user.websiteLimit - user.websitesCreated}
+              </div>
+              <div className="text-sm text-gray-300">Remaining</div>
             </div>
-
-            <div>
-              <label htmlFor="targetAudience" className="block text-white font-medium mb-2">
-                Target Audience (Optional)
-              </label>
-              <input
-                type="text"
-                id="targetAudience"
-                name="targetAudience"
-                value={formData.targetAudience}
-                onChange={handleInputChange}
-                placeholder="e.g., Young professionals, Parents, Students"
-                className="w-full px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                disabled={loading}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label htmlFor="colorScheme" className="block text-white font-medium mb-2">
-                  Color Scheme
-                </label>
-                <select
-                  id="colorScheme"
-                  name="customization.colorScheme"
-                  value={formData.customization.colorScheme}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  disabled={loading}
-                >
-                  <option value="modern">Modern</option>
-                  <option value="classic">Classic</option>
-                  <option value="vibrant">Vibrant</option>
-                  <option value="minimal">Minimal</option>
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="style" className="block text-white font-medium mb-2">
-                  Style
-                </label>
-                <select
-                  id="style"
-                  name="customization.style"
-                  value={formData.customization.style}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  disabled={loading}
-                >
-                  <option value="professional">Professional</option>
-                  <option value="casual">Casual</option>
-                  <option value="luxury">Luxury</option>
-                  <option value="playful">Playful</option>
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="tone" className="block text-white font-medium mb-2">
-                  Tone
-                </label>
-                <select
-                  id="tone"
-                  name="customization.tone"
-                  value={formData.customization.tone}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-3 rounded-lg bg-white/20 border border-white/30 text-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  disabled={loading}
-                >
-                  <option value="persuasive">Persuasive</option>
-                  <option value="informative">Informative</option>
-                  <option value="friendly">Friendly</option>
-                  <option value="authoritative">Authoritative</option>
-                </select>
-              </div>
-            </div>
-
-            {error && (
-              <div className="bg-red-500/20 border border-red-500/50 rounded-lg p-4">
-                <p className="text-red-200">{error}</p>
-              </div>
+            {user.websitesCreated >= user.websiteLimit && (
+              <button
+                onClick={() => router.push('/pricing')}
+                className="bg-gradient-to-r from-orange-500 to-red-500 text-white px-6 py-2 rounded-lg font-semibold hover:from-orange-600 hover:to-red-600 transition-all"
+              >
+                Upgrade for More
+              </button>
             )}
+          </div>
+        </div>
 
-            {success && (
-              <div className="bg-green-500/20 border border-green-500/50 rounded-lg p-4">
-                <p className="text-green-200">{success}</p>
+        {/* Error/Success Messages */}
+        {error && (
+          <div className="bg-red-500/20 border border-red-500 text-red-100 px-4 py-3 rounded-lg mb-6">
+            <div className="flex items-center">
+              <span className="text-red-400 mr-2">⚠️</span>
+              {error}
+            </div>
+          </div>
+        )}
+
+        {success && (
+          <div className="bg-green-500/20 border border-green-500 text-green-100 px-4 py-3 rounded-lg mb-6">
+            <div className="flex items-center">
+              <span className="text-green-400 mr-2">✅</span>
+              {success}
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Website Generation Form */}
+          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-8 border border-white/20">
+            <h2 className="text-2xl font-bold text-white mb-6">
+              🎯 No BS Website Creation
+            </h2>
+
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Product URL */}
+              <div>
+                <label className="block text-white font-semibold mb-2">
+                  Product/Affiliate URL *
+                </label>
+                <input
+                  type="url"
+                  name="productUrl"
+                  value={formData.productUrl}
+                  onChange={handleInputChange}
+                  placeholder="https://www.amazon.com/product-link"
+                  className="w-full px-4 py-3 bg-white/20 border border-white/30 rounded-lg text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+                <p className="text-sm text-gray-300 mt-1">
+                  Just paste your affiliate link - our AI will handle the rest! 🧠
+                </p>
               </div>
-            )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white font-bold py-3 px-6 rounded-lg hover:from-blue-600 hover:to-purple-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Generating Website...' : 'Generate Website'}
-            </button>
-          </form>
+              {/* Niche (Optional) */}
+              <div>
+                <label className="block text-white font-semibold mb-2">
+                  Niche/Category (Optional)
+                </label>
+                <input
+                  type="text"
+                  name="niche"
+                  value={formData.niche}
+                  onChange={handleInputChange}
+                  placeholder="e.g., Fitness, Technology, Beauty (AI will detect if empty)"
+                  className="w-full px-4 py-3 bg-white/20 border border-white/30 rounded-lg text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
 
-          {generatedWebsite && (
-            <div className="mt-8 space-y-6">
-              <div className="bg-white/10 rounded-lg p-6">
-                <h2 className="text-2xl font-bold text-white mb-4">Generated Website Preview</h2>
-                
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-white font-semibold">Title</h3>
-                    <p className="text-white/80">{generatedWebsite.title}</p>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-white font-semibold">Description</h3>
-                    <p className="text-white/80">{generatedWebsite.description}</p>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-white font-semibold">Hero Section</h3>
-                    <div className="bg-white/5 rounded p-4 space-y-2">
-                      <p className="text-white font-medium">{generatedWebsite.content.hero.headline}</p>
-                      <p className="text-white/70">{generatedWebsite.content.hero.subheadline}</p>
-                      <button className="bg-blue-500 text-white px-4 py-2 rounded">
-                        {generatedWebsite.content.hero.ctaText}
-                      </button>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-white font-semibold">Features</h3>
-                    <ul className="space-y-1">
-                      {generatedWebsite.content.features.map((feature, index) => (
-                        <li key={index} className="text-white/80 flex items-start">
-                          <span className="text-green-400 mr-2">✓</span>
-                          {feature}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+              {/* Target Audience (Optional) */}
+              <div>
+                <label className="block text-white font-semibold mb-2">
+                  Target Audience (Optional)
+                </label>
+                <textarea
+                  name="targetAudience"
+                  value={formData.targetAudience}
+                  onChange={handleInputChange}
+                  placeholder="AI will analyze your product and create perfect audience targeting..."
+                  rows={3}
+                  className="w-full px-4 py-3 bg-white/20 border border-white/30 rounded-lg text-white placeholder-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Customization Options */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-white font-semibold mb-2">Color Scheme</label>
+                  <select
+                    name="customization.colorScheme"
+                    value={formData.customization.colorScheme}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 bg-white/20 border border-white/30 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="modern">Modern</option>
+                    <option value="classic">Classic</option>
+                    <option value="vibrant">Vibrant</option>
+                    <option value="minimal">Minimal</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-white font-semibold mb-2">Style</label>
+                  <select
+                    name="customization.style"
+                    value={formData.customization.style}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 bg-white/20 border border-white/30 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="professional">Professional</option>
+                    <option value="casual">Casual</option>
+                    <option value="luxury">Luxury</option>
+                    <option value="playful">Playful</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-white font-semibold mb-2">Tone</label>
+                  <select
+                    name="customization.tone"
+                    value={formData.customization.tone}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-3 bg-white/20 border border-white/30 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="persuasive">Persuasive</option>
+                    <option value="informative">Informative</option>
+                    <option value="friendly">Friendly</option>
+                    <option value="authoritative">Authoritative</option>
+                  </select>
                 </div>
               </div>
-            </div>
-          )}
+
+              {/* Submit Button */}
+              <button
+                type="submit"
+                disabled={loading || (user.websitesCreated >= user.websiteLimit)}
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-4 px-6 rounded-lg font-bold text-lg hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <div className="flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-3"></div>
+                    Generating Your Website...
+                  </div>
+                ) : (
+                  '🚀 Generate Website with AI'
+                )}
+              </button>
+            </form>
+          </div>
+
+          {/* Generated Website Preview */}
+          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-8 border border-white/20">
+            <h2 className="text-2xl font-bold text-white mb-6">
+              🎉 Generated Website
+            </h2>
+
+            {generatedWebsite ? (
+              <div className="space-y-4">
+                <div className="bg-white/20 rounded-lg p-4">
+                  <h3 className="text-xl font-bold text-white mb-2">
+                    {generatedWebsite.title}
+                  </h3>
+                  <p className="text-gray-300 mb-4">
+                    {generatedWebsite.description}
+                  </p>
+
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {generatedWebsite.features.map((feature, index) => (
+                      <span
+                        key={index}
+                        className="bg-blue-500/30 text-blue-200 px-3 py-1 rounded-full text-sm"
+                      >
+                        {feature}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={previewWebsite}
+                      className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold transition-all"
+                    >
+                      👁️ Preview Website
+                    </button>
+                    <button
+                      onClick={() => router.push('/dashboard')}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold transition-all"
+                    >
+                      📊 View Dashboard
+                    </button>
+                  </div>
+                </div>
+
+                <div className="text-center">
+                  <p className="text-green-400 font-semibold">
+                    🎮 Achievement Unlocked: Website Creator!
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center text-gray-400">
+                <div className="text-6xl mb-4">🎯</div>
+                <p className="text-lg mb-2">Ready to create your website?</p>
+                <p className="text-sm">
+                  Fill out the form and watch our AI work its magic! ✨
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Features Section */}
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 text-center">
+            <div className="text-4xl mb-4">⚡</div>
+            <h3 className="text-xl font-bold text-white mb-2">Lightning Fast</h3>
+            <p className="text-gray-300">
+              Generate professional websites in under 60 seconds
+            </p>
+          </div>
+
+          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 text-center">
+            <div className="text-4xl mb-4">🎨</div>
+            <h3 className="text-xl font-bold text-white mb-2">AI-Powered Design</h3>
+            <p className="text-gray-300">
+              Smart layouts that convert visitors into customers
+            </p>
+          </div>
+
+          <div className="bg-white/10 backdrop-blur-lg rounded-xl p-6 border border-white/20 text-center">
+            <div className="text-4xl mb-4">📱</div>
+            <h3 className="text-xl font-bold text-white mb-2">Mobile Ready</h3>
+            <p className="text-gray-300">
+              Responsive designs that look perfect on any device
+            </p>
+          </div>
         </div>
       </div>
     </div>
   );
 }
-
