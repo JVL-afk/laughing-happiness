@@ -1,133 +1,82 @@
-// 🚀 FIXED AFFILIFY LOGIN API ROUTE
-// File: src/app/api/auth/login/route.ts
+// src/app/api/auth/login/route.ts
+// OBJECTID-BASED LOGIN - No JWT, Direct ObjectID Storage
 
 import { NextRequest, NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { MongoClient } from 'mongodb';
 import { connectToDatabase } from '@/lib/mongodb';
-
-// MongoDB connection with CORRECTED password case
-const MONGODB_URI = process.env.MONGODB_URI!;
-const JWT_SECRET = process.env.JWT_SECRET!;
-
-let client: MongoClient;
-let clientPromise: Promise<MongoClient>;
-
-if (!global._mongoClientPromise) {
-  client = new MongoClient(MONGODB_URI, {
-    // REMOVED deprecated bufferMaxEntries parameter
-    maxPoolSize: 10,
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-  });
-  global._mongoClientPromise = client.connect();
-}
-clientPromise = global._mongoClientPromise;
+import bcrypt from 'bcryptjs';
 
 export async function POST(request: NextRequest) {
   try {
     const { email, password } = await request.json();
 
-    // Validation
     if (!email || !password) {
-      return NextResponse.json(
-        { error: 'Email and password are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        error: 'Email and password are required'
+      }, { status: 400 });
     }
 
     // Connect to database
     const { db } = await connectToDatabase();
-    const users = db.collection('users');
 
+    // Find user by email
+    const user = await db.collection('users').findOne({ email: email.toLowerCase() });
 
-    // Find user
-    const user = await users.findOne({ email });
     if (!user) {
-      return NextResponse.json(
-        { error: 'Invalid email or password' },
-        { status: 401 }
-      );
+      return NextResponse.json({
+        error: 'Invalid email or password'
+      }, { status: 401 });
     }
 
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password);
+
     if (!isValidPassword) {
-      return NextResponse.json(
-        { error: 'Invalid email or password' },
-        { status: 401 }
-      );
+      return NextResponse.json({
+        error: 'Invalid email or password'
+      }, { status: 401 });
     }
-
-    // Check if account is active
-    if (!user.isActive) {
-      return NextResponse.json(
-        { error: 'Account is deactivated. Please contact support.' },
-        { status: 401 }
-      );
-    }
-
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        userId: user._id, 
-        email: user.email, 
-        plan: user.plan || 'basic' 
-      },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
 
     // Update last login
-    await users.updateOne(
+    await db.collection('users').updateOne(
       { _id: user._id },
       { $set: { lastLogin: new Date() } }
     );
 
-    // Create response
-    const response = NextResponse.json(
-      { 
-        message: 'Login successful',
-        user: {
-          id: user._id,
-          fullName: user.fullName,
-          email: user.email,
-          plan: user.plan || 'basic',
-          websitesCreated: user.websitesCreated || 0,
-          websiteLimit: user.websiteLimit || 3
-        }
-      },
-      { status: 200 }
-    );
+    console.log('🔍 LOGIN SUCCESS: ObjectID stored for user:', user._id.toString());
 
-    // Set JWT cookie
-    response.cookies.set('auth-token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 // 7 days
+    // Create response with ObjectID (NO JWT!)
+    const response = NextResponse.json({
+      success: true,
+      message: 'Login successful',
+      objectId: user._id.toString(), // Send ObjectID to frontend
+      user: {
+        id: user._id.toString(),
+        name: user.fullName || user.name || 'User',
+        email: user.email,
+        plan: user.plan || 'basic',
+        websitesCreated: user.websitesCreated || 0
+      }
     });
+
+    // Store ObjectID in multiple cookies for reliability
+    const cookieOptions = {
+      httpOnly: false, // Allow frontend access
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax' as const,
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    };
+
+    response.cookies.set('user-id', user._id.toString(), cookieOptions);
+    response.cookies.set('auth-id', user._id.toString(), cookieOptions);
+    response.cookies.set('userId', user._id.toString(), cookieOptions);
+    response.cookies.set('objectId', user._id.toString(), cookieOptions);
 
     return response;
 
   } catch (error) {
     console.error('Login error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      error: 'Internal server error'
+    }, { status: 500 });
   }
-}
-
-// Handle OPTIONS for CORS
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
-  });
 }
